@@ -43,7 +43,7 @@ To submit your projects, you will need to create a subfolder in your local `stat
 
 ```
 lab1/
-  homework.pdf
+  homework1.pdf
   lab1.Rmd
   lab1.pdf
   lab1_blind.Rmd
