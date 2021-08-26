@@ -1,4 +1,4 @@
-# Repository for submitting labs for STAT 215A Fall 2020
+# Repository for submitting labs for STAT 215A Fall 2021
 
 ## Setup
 
@@ -12,9 +12,9 @@ Your report and code will be submitted via GitHub. The following instructions wi
 
 Once you have completed these first steps, you are then ready to create your private GitHub repository for this class.
 
-1. Locally on your machine, clone my stat-215-a repository: `git clone https://github.com/jpdunc23/stat-215-a. This will create a copy of the repository on your own computer.
+1. Locally on your machine, clone my stat-215-a repository: `git clone https://github.com/OmerRonen/stat-215-a. This will create a copy of the repository on your own computer.
 
-1. On the GitHub website, log in and create a **private** remote repository called *stat-215-a*. Add me (*jpdunc23*) as a collaborator for this repository (check out settings on the repo website).
+1. On the GitHub website, log in and create a **private** remote repository called *stat-215-a*. Add me (*OmerRonen*) as a collaborator for this repository (check out settings on the repo website).
 
 1. Back in the terminal, set the origin of your local repository to be the remote repository that you just made. Change USERNAME below to your username. This tells git which remote repository to push your changes to when you `git push` (`git remote set-url origin https://github.com/USERNAME/stat-215-a.git`).
 
