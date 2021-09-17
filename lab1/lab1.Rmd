@@ -1,6 +1,6 @@
 ---
-title: "Lab 1 - Redwood Data, Stat 215A, Fall 2019"
-author: "Your name"
+title: "Lab 1 - Redwood Data, Stat 215A, Fall 2021"
+author: "Sahil Saxena"
 date: "`r format(Sys.time(), '%B %d, %Y')`"
 header-includes:
    - \usepackage{float}
@@ -8,9 +8,6 @@ output:
   pdf_document:
     number_sections: true
 ---
-
-
-Please use this structure for your report, but you do not have to slavishly follow this template. All bullet points are merely suggestions and potential points to discuss in your writeup. Your report should be no more than 12 pages, including figures. Do not include *any* code or code output in your report. Indicate your informal collaborators on the assignment, if you had any.
 
 ```{r setup, echo = FALSE, message=FALSE, warning=FALSE}
 # load in useful packages
