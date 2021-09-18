@@ -167,7 +167,7 @@ vars <- colnames(redwood_log)
 
 ggplot(redwood_log) + 
   geom_histogram(aes(x = mdy(date)), col = "white", alpha = 0.5, fill = "blue") +
-  xlab("time") + ylab("# obs") + ggtitle("Number of Observations from Data Logger (blue) vs Wireless Network (red)") +
+  xlab("Time") + ylab("# obs") + ggtitle("Number of Observations from Data Logger (blue) vs Wireless Network (red)") +
   theme(text = element_text(size=10)) +
   scale_y_continuous(limits = c(0,30000)) +
   geom_histogram(data=redwood_net,aes(mdy(date)), col= "white", fill = "red",alpha=0.5) 
@@ -180,7 +180,7 @@ The number of overall observations made over time from both the data logger and 
 
 After May 5th, the number of observations made daily approximately halves, and in the days following May 25th, the logger almost records 0 observations. According to Tolle et al., this is because  data logs "filled up".  Thus for the sake of insightful analysis, this report primarily examines the data logger dataset.
 
-The variable humid_adj looked very similar to variable humidity, so humid_adj was also removed. There are also humidity values out of the 0 - 100 range, but this is nonsensical because this is a relative percentage. However, the humidity values above 100% visually seemed to fit with the data so those remained in the data, and could have happened due to a calibration error.
+The variable humid_adj looked very similar to variable humidity, so humid_adj was also removed. 
 
 The logger dataset, the result_time variable had only one date (14:25:00, November 10th, 2004) repeated. Using the external file which had the correct epoch and result_time, the accurate times of measurement were put in.
 
@@ -189,17 +189,50 @@ The dataset has a large amount of missing values. This is because there are many
 
 ## Data Exploration
 
-- The main goal of this section is to give the reader a feel for what the data ``looks like'' at a basic level
-- Think about plots that summarize the data, plots that convey some smaller findings which ultimately motivate your main findings
-- A good report will tie everything together so that there is a reason for every figure in the story
+The 4 variables of significance are humidity, temperature, and both types of PAR. The scatter plots below show the dispersion of the observations over time. Each timestamp has a data point for all of its nodes.
+
+```{r plots,message=FALSE,echo=FALSE,warning=FALSE,cache=TRUE,fig.height=5,fig.width=7,fig.cap="Scatterplot of each variable versus time in the data logger dataset. The color of each point corresponds to its voltage readings: red points have 0 voltage reading, green points are in which the node dies, and blue points have a valid voltage reading."}
+#remove voltage
+log.edit <- mutate(redwood_log, outlier = "normal voltage") 
+log.edit$outlier[log.edit$nodeid %in% 29] = "node dies"
+log.edit$outlier[log.edit$nodeid %in% c(128,134,135,141,142,143,145,65535)] = "no voltage"
+
+set.seed(100)
+index <- sample(1:nrow(redwood_log),10000) 
+
+plot.humid <- ggplot(log.edit[index,]) + 
+  geom_point(aes(x = mdy(date), y = humidity, col = outlier), alpha = 0.5) + ylab("% humidity") +
+  ggtitle("Humidity") + xlab("Time")  + scale_colour_discrete(guide = FALSE) 
+
+plot.temp <- ggplot(log.edit[index,]) + 
+  geom_point(aes(x = mdy(date), y = humid_temp, col = outlier), alpha = 0.5) + ylab("degrees celcius") +
+  ggtitle("Temperature") + xlab("Time") + scale_colour_discrete(guide = FALSE) 
+
+plot.hamatop <- ggplot(log.edit[index,]) + 
+  geom_point(aes(x = mdy(date), y = hamatop, col = outlier), alpha = 0.5) + ylab("PAR") + 
+  ggtitle("Incident PAR") + xlab("Time") + scale_colour_discrete(guide = FALSE) 
+
+plot.hamabot <- ggplot(log.edit[index,]) + 
+  geom_point(aes(x = mdy(date), y = hamabot, col = outlier), alpha = 0.5) + ylab("PAR") +
+  ggtitle("Reflected PAR") + xlab("Time") + scale_colour_discrete(guide = FALSE)
+
+par(mfrow=c(2,2))
+plot.humid
+plot.temp
+plot.hamatop
+plot.hamabot
+```
+
+There are also humidity values out of the 0 - 100 range, but this is nonsensical because this is a relative percentage. However, the humidity values above 100% visually seemed to fit with the data so those remained in the data, and could have happened due to a calibration error. The humidity values below zero correspond to a faulty node, which displayed strange voltage behaviour. These same nodes also recorded unreasonable temperatures incident PAR measurements. 
+
+This sheds some insight into what the data looks like, while accounting for the sensors' voltage malfunctioning. Temperature and humidity seem to follow some seasonal trend (here the season is over the course of a few days). Both readings of PAR seem to be somewhat uniform over time.
+
 
 ## Reality Check
 
- - Do a reality check. What reality could you compare your cleaned data to?
- - Clearly state your assumptions and explain why this reality check is useful. 
- - Does your cleaned data pass the reality check or are there
-issues? Discuss.
+This cleaned data could be compared to other studies done measuring these 4 variables. Specifically, one could look at the same time period and compare these variables in other geographic locations. Also, it can be useful to look at the same month of the year, but in different years prior or after 2004. 
 
+By cleaning the data (removing values, ignoring certain time periods, etc.), underlying assumptions are that the remaining data is valid. This reality check can help verify whether these readings are really meaningful and valid. Just from looking at norhtern California weather historically, the values of temperature and humidity seem to make sense.
 
 # Graphical Critique
 
@@ -207,6 +240,14 @@ issues? Discuss.
 - What questions did they try to answer? Did they answer them successfully? 
 - Did they raise any questions not addressed in the text? 
 - Would you change them at all?
+
+In Figures 3 & 4 of the paper, Tolle et. al. show many graphs. Figure 3 is about the 4 main variables and each is shown via a histogram, boxplots by day, and boxplots based on node height (one of these shows the difference from the mean). These graphs are intended to give the reader a visual feeling of the data, through the distribution of each variable and also through variability around the tree. 
+
+Putting the graphs next to each other helps raise questions about relationships between variables. Specifically, why does  temperature and humidity have somewhat similar distributions, yet the PAR readings have a positive skew? Also, they raise the issue of humidity seemingly varying more as time goes on compared to temperature. Why does reflected PAR only have an abundance of observations for high node heights? The authors visually compare different variables to bring out these questions. Some can be answered visually and with background knowledge. For example, reflected PAR has variables at height because it measures reflected light, which is accessible away from the leaves in the forest. These questions also serve the purpose of a reality check. These questions also help to understand the "macroscope" and the general trends that occur in the forest.
+
+Figure 4 highlights the variation in one day, which is important to understand as well. They remove focus on spatial features like height and ask the question about externalities, like sunlight, through the PAR time series. There are some unexpected results here, which is attributed to the uniqueness of this forest's climate. Specifically, an inverse relationship is expected between humidity and temperature, but this redwood has large spikes in humidity witout large dips in temperature. This is how the authors move forward some of the larger findings; in this case, that the local climate has changed in strange ways.
+
+I thought the graphs are informative and useful for setting up context. However, the two figures have some potential contradictions on height, which are not addressed in detail. Figure 3 shows the impact of height on variables, whereas Figure 4 downplays that variation and rather shows that temperature is fairly constant at all heights. Personally, I would choose to keep the factor of height involved in Figure 4 by using colors based based on height ranges. This would show that height still plays an effect and give a better overall summary of the true story.
 
 # Findings
 
