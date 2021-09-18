@@ -46,8 +46,16 @@ dates <- cleanDatesData(dates_orig)
 redwood_all_orig <- loadRedwoodData(path = "data/", source = "all")
 redwood_net_orig <- loadRedwoodData(path = "data/", source = "net")
 redwood_log_orig <- loadRedwoodData(path = "data/", source = "log")
-# clean the redwood sensor data
 
+# clean the redwood sensor data
+redwood_all <- cleanRedwoodData(redwood_all_orig)
+redwood_net <- cleanRedwoodData(redwood_net_orig)
+redwood_log <- cleanRedwoodData(redwood_log_orig)
+
+# load in the mote location data
+mote_orig <- loadMoteLocationData(path = "data/")
+# clean mote location data
+mote <- cleanMoteLocationData(mote_orig)
 ```
 
 # Introduction
@@ -60,16 +68,40 @@ Things to potentially include in your introduction:
 - What is the purpose of your exploratory data analysis?
 - Outline what you will be doing in the rest of the report/analysis
 
+This report analyzes, critiques, and expands upon "A Macroscope in the Redwoods," a paper by Gilman Tolle et. al. which discusses data about single redwood tree in northern California. Specifically, the report explains the data collection from a multitude of sensors over a period of more than one month and presents its findings from this complex, multi-dimentional data. 
+
+*** Add more Here ***
+
+```{r include= FALSE}
+summary(redwood_all_orig)
+```
+
 # Data
 
-- What is the data that you will be looking at?
-- Provide a brief overview of the data
-- How is this data relevant to the problem of interest? In other words, make the link between the data and the domain problem
+A team of scientists from University of California, Berkeley collected and analyzed data from a redwood tree in the Grove of Old Trees in Sonoma, California. The team built a wireless sensor network by installing sensor nodes, placed around the physical structure of the tree. They also used a local data logger to record readings from other sensor nodes.
+
+The team chooses this data to measure by balancing the limitations of technology and the requests from local biologists. The team decided that this data would best give insights about the ecophysiology of coastal redwood forests. Although just studying one tree, this data helps biologists understand the spatial climate gradients around a large redwood tree and the temporal dynamics. For example, warm temperature fronts move down the tree over time and high humidity fronts move through the canopy over time. Some shortcomings of this data collection include only studying 1 tree (which prevents understanding variation over different tree types), not getting any direct solar radiation measurements (which forces bioligists to estimate the true sunlight), and lack of air pressure readings.
 
 ## Data Collection
 
-- How was the data generated?
-- Discuss the measurements of each variable in the data that you will be using in your analysis
+```{r count-sensors}
+log.mote.interior <- inner_join(redwood_log, mote, by = "nodeid") %>% filter(tree == "interior")
+log.mote.edge <- inner_join(redwood_log, mote, by = "nodeid") %>% filter(tree == "edge")
+net.mote.interior <- inner_join(redwood_net, mote, by = "nodeid") %>% filter(tree == "interior")
+net.mote.edge <- inner_join(redwood_net, mote, by = "nodeid") %>% filter(tree == "edge")
+
+n.log.interior <- length(unique(log.mote.interior$nodeid))
+n.log.edge <- length(unique(log.mote.edge$nodeid))
+n.net.interior <- length(unique(net.mote.interior$nodeid))
+n.net.edge <- length(unique(net.mote.edge$nodeid))
+# give overview of these numbers in data collection
+```
+
+The data from each sensor was carefully routed via a mesh netowrk. Through this, the data was linked to a database running on a gateway. They also included a local data logging system in case of any network failure. They then ran simple SQL queries to select the relevant values. 
+
+The sensor readings were aggregated in 2 datasets: wireless sensor network and data logger. Data logger includes readings from 39 nodes placed on the "edge" (radially 1m from the tree) and 30 nodes placed on the "interior" (radially 0.1m from the tree). The wireless sensor network includes readings from 29 nodes on the "interior".
+
+Each node had a battery and two sensor boards; one board captured radiation, the other captured temperature and humidity. The result was 4 value readings from each node: temperature, humidity, incident photosynthetically active radiation (PAR), and reflected PAR. By planting sensors at every 2 meters of height (between 15m and 70m) and at both 0.1m and 1m away from the tree, they ensured data which considers spatial variation. A majority of these sensors had to be placed on the tree's west side to gain protection from the tree's thicker foliage. Temporally, the data was recorded at 5 minute intervals from April 27 to June 10, 2004, giving a potenial total of 1.7 million data points. The team extracted meaning from the resulting set of 820,700 data points, which is a 49% overall yield. Specifically, the logger data has only 301,056 observations and the network data has only 114,975 observations. Clearly there are a lot of missing values and faulty data points, which are addressed in more detail in the next section. 
 
 ## Data Cleaning
 
@@ -78,6 +110,19 @@ Things to potentially include in your introduction:
 - Record your preprocessing steps in a way such that if someone else were to reproduce your analysis, they could easily replicate and understand your preprocessing
 - You may find it helpful to include relevant plots that help to explain the choices you made when cleaning the data
 - Be transparent! This allows for others to read your work and make their own educated decisions on how best to preprocess the data.
+
+The biggest problems in the dataset are missing values, nonsensical values, and an abundance of outliers, all of which make analysis impossible. The data contains the following variables:
+  
+Variable      | # of Missing (NA) Values
+------------- | --------------------  
+Humidity      |               12,532
+Temperature   |               12,532
+Adj. humidity |               12,532
+Incident PAR  |               12,532
+Reflected PAR |               12,532
+Height        |                6,371
+Distance      |                6,371
+
 
 ## Data Exploration
 

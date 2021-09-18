@@ -71,7 +71,7 @@ loadRedwoodData <- function(path = "data/", source = c("all", "log", "net")) {
   #
   # Arguments:
   #   path: the path indicating the location of the `sonoma-data*` data files.
-  #         Path should be relative to the lab1.Rnw file.
+  #         Path should be relative to the lab1.Rmd file.
   #   source: a character indicating whether we want to load 
   #         "sonoma-data-all.csv" ("all"), "sonoma-data-log.csv" ("log"), or
   #         "sonoma-data-net.csv" ("net")
@@ -85,5 +85,12 @@ loadRedwoodData <- function(path = "data/", source = c("all", "log", "net")) {
 
 
 loadMoteLocationData <- function(path = "data/") {
-  # fill me in!
+  # Arguments:
+  #   path: the path indicating the location of the `mote-location-data.txt` data files.
+  #         Path should be relative to the lab1.Rmd file.
+  
+  # load in txt table
+  motes <- read.table(paste0(path, "mote-location-data.txt"), header = T)
+  
+  return(motes)
 }

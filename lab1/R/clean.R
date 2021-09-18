@@ -31,9 +31,20 @@ cleanDatesData <- function(date_df) {
 }
 
 
-cleanRedwoodData <- function(redwood_df) {
+cleanRedwoodData <- function(redwood_df, epoch_df) {
   # convert result_time to lubridate ymd_hms format
+  redwood_df <- redwood_df %>% mutate(result_time = ymd_hms(result_time))
   
-  # do anything else you feel is necessary
+  return(redwood_df)
+}
+
+cleanMoteLocationData <- function(mote_df) {
+  # change id to nodeid for consistency
+  mote_df <- mote_df %>% rename(nodeid = ID)
+  
+  # convert column names to lowercase
+  colnames(mote_df) <- tolower(colnames(mote_df))
+  
+  return(mote_df)
 }
 
