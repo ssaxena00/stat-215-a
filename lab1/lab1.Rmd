@@ -15,6 +15,7 @@ library(tidyverse)
 library(forcats)
 library(lubridate)
 library(stringr)
+require(gridExtra)
 
 # require(devtools)
 #install.packages('textfeatures', version='0.2.0', repos='http://cran.us.r-project.org')
@@ -108,11 +109,6 @@ Each node had a battery and two sensor boards; one board captured radiation, the
 
 ## Data Cleaning
 
-- Discuss all inconsistencies, problems, oddities in the data (e.g., missing data, errors in data, outliers, etc)
-- What steps did you take to clean the data, and why did you clean the data in that way?
-- Record your preprocessing steps in a way such that if someone else were to reproduce your analysis, they could easily replicate and understand your preprocessing
-- You may find it helpful to include relevant plots that help to explain the choices you made when cleaning the data
-- Be transparent! This allows for others to read your work and make their own educated decisions on how best to preprocess the data.
 
 The biggest problems in the dataset are missing values, nonsensical values, and an abundance of outliers, all of which make analysis impossible. The data contains the following meaningful variables:
   
@@ -129,7 +125,7 @@ hamabot       | reflective PAR              |                   12,532
 
 There are also variables called parent and depth, but the paper does not give a description about how to work with these. These 2 variables are removed from the data. Out of the 416,031 total measurements (including network and logger), there are 12,532 missing values for the climatic variables. 
 
-```{r fig.cap="Histogram showing the number of observations for the net dataset (red) obverlaid onto a histogram showing the number of observations for the log dataset (blue) over time"}
+```{r fig.cap="Histogram showing the number of observations for the net dataset (red) obverlaid onto a histogram showing the number of observations for the log dataset (blue) over time", fig.height=5}
 n.log <- nrow(redwood_log)
 n.net <- nrow(redwood_net)
 matches <- inner_join(select(redwood_net, nodeid, epoch),
@@ -191,7 +187,7 @@ The dataset has a large amount of missing values. This is because there are many
 
 The 4 variables of significance are humidity, temperature, and both types of PAR. The scatter plots below show the dispersion of the observations over time. Each timestamp has a data point for all of its nodes.
 
-```{r plots,message=FALSE,echo=FALSE,warning=FALSE,cache=TRUE,fig.height=5,fig.width=7,fig.cap="Scatterplot of each variable versus time in the data logger dataset. The color of each point corresponds to its voltage readings: red points have 0 voltage reading, green points are in which the node dies, and blue points have a valid voltage reading."}
+```{r plots,message=FALSE,echo=FALSE,warning=FALSE,cache=TRUE,fig.height=5,fig.cap="Scatterplot of each variable versus time in the data logger dataset. The color of each point corresponds to its voltage readings: red points have 0 voltage reading, green points are in which the node dies, and blue points have a valid voltage reading."}
 #remove voltage
 log.edit <- mutate(redwood_log, outlier = "normal voltage") 
 log.edit$outlier[log.edit$nodeid %in% 29] = "node dies"
@@ -216,11 +212,7 @@ plot.hamabot <- ggplot(log.edit[index,]) +
   geom_point(aes(x = mdy(date), y = hamabot, col = outlier), alpha = 0.5) + ylab("PAR") +
   ggtitle("Reflected PAR") + xlab("Time") + scale_colour_discrete(guide = FALSE)
 
-par(mfrow=c(2,2))
-plot.humid
-plot.temp
-plot.hamatop
-plot.hamabot
+grid.arrange(plot.humid, plot.temp, plot.hamatop, plot.hamabot, ncol=2)
 ```
 
 There are also humidity values out of the 0 - 100 range, but this is nonsensical because this is a relative percentage. However, the humidity values above 100% visually seemed to fit with the data so those remained in the data, and could have happened due to a calibration error. The humidity values below zero correspond to a faulty node, which displayed strange voltage behaviour. These same nodes also recorded unreasonable temperatures incident PAR measurements. 
@@ -236,10 +228,6 @@ By cleaning the data (removing values, ignoring certain time periods, etc.), und
 
 # Graphical Critique
 
-- Critique the plots in Figures 3 \& 4 in Tolle et al.
-- What questions did they try to answer? Did they answer them successfully? 
-- Did they raise any questions not addressed in the text? 
-- Would you change them at all?
 
 In Figures 3 & 4 of the paper, Tolle et. al. show many graphs. Figure 3 is about the 4 main variables and each is shown via a histogram, boxplots by day, and boxplots based on node height (one of these shows the difference from the mean). These graphs are intended to give the reader a visual feeling of the data, through the distribution of each variable and also through variability around the tree. 
 
@@ -249,22 +237,112 @@ Figure 4 highlights the variation in one day, which is important to understand a
 
 I thought the graphs are informative and useful for setting up context. However, the two figures have some potential contradictions on height, which are not addressed in detail. Figure 3 shows the impact of height on variables, whereas Figure 4 downplays that variation and rather shows that temperature is fairly constant at all heights. Personally, I would choose to keep the factor of height involved in Figure 4 by using colors based based on height ranges. This would show that height still plays an effect and give a better overall summary of the true story.
 
+```{r final_data}
+# remove the NA rows
+log.new <- filter(redwood_log, !is.na(humidity))
+
+# remove the erroneous entries and the weird outliers
+log.rm <- group_by(log.new, nodeid) %>% 
+  summarize(n = n(),
+            "Less than 1000 obs" = n() < 1000, 
+            "% Humidity < 0" = round(100*sum(humidity<0)/n), 
+            "% Temperature < 0" = round(100*sum(humid_temp < 0)/n), 
+            "% Incident PAR > 120,000" = round(100*sum(hamatop > 120000)/n))
+
+to.remove.log <- log.rm[which(apply(log.rm[,-c(1,2)],1,sum) >0),]
+
+
+# Each of these nodes are to be removed -- not enough data for any
+log.new <- filter(log.new, !(nodeid %in% to.remove.log$nodeid))
+
+
+# Split the height into lower, middle, upper
+mote <- mutate(mote, height.interval = cut(height, breaks = c(10,47.5,57,67),
+                                           labels=c("lower","middle","upper")))
+mote$height.interval <- factor(mote$height.interval,
+                               levels <- c("upper","middle","lower"))
+
+# How many of the nodes are in the log dataset and vice versa?
+log.mote <- inner_join(log.new,mote,by="nodeid")
+
+# Add a column which has just the date but not the time
+# as well as a column which has the time and an arbitrary date
+log.mote <- mutate(log.mote, date = mdy(date))
+log.mote <- mutate(log.mote, time = hms(time))
+
+log.interior <- filter(log.mote, tree=="interior")
+log.edge <- filter(log.mote, tree=="edge")
+```
+
+
 # Findings
 
-- Present three interesting findings and produce a publication
-quality graphic for each along with a short caption of what each shows.
-- Don't forget to appropriate label axes, titles
-- Think carefully about use of color, labeling, shading, transparency, etc.
-- Also interpret and provide an insightful discussion of what your figures show
+## Temperature and Humidity in times of Day
 
-## First finding
+The figure below displays humidity versus temperature over four consecutive days and is supposed to highlight the time of day through coloring (dark points correspond to nighttime and light points correspond to daytime). 
 
-Describe it and place a figure here
+Note: I wasn't able to debug this issue, so I left all points as the same color for now. Sometimes the graph would work correctly and sometimes it did not. Given more time, I would continue to troubleshoot this issue.
+
+During daytime, the relationship between temperature and humidity is quite linear, whereas its not so linear during the night. During the night hours, every plot has 2 distinct temperature-humidity clusters, corresponding to early morning and late night. This is expected as they are separated by the daylight hours. Although the night still show an inverse relationship, the trend is not as steep nor linear as the day. 
+
+For example, the temperature decreases as humidity increases during the day on 05/01. However, at night, the temperature is fairly constant around 20, even with changes in humidity. At night, temperature is less responsive to changes in humidity. Also, there is a clear trend that the night is cooler and less humid than the daytime.
 
 
-## Second finding
+```{r finding1, echo=FALSE,cache=TRUE,warning=FALSE,fig.cap="Temperature versus humidity for the interior tree on each of April 30th, May 1st, 2nd and 3rd.",fig.height=6}
 
-Describe it and place a figure here
+midday <- as.integer(ymd_hms("2012-01-01 12:00:00"))
+index <- sample(1:nrow(log.interior),50000)
+log.new <- filter(log.interior[index,], date >= as.Date("2004-04-30",tz=8), date <= as.Date("2004-05-03",tz=8))
+ggplot(log.new) +
+  geom_point(aes(x = humidity, y = humid_temp, col = abs(midday - (as.integer(time)))) ,alpha=1) +
+  xlab("humidity") + ylab("temperature") +
+  facet_wrap(~ date, ncol = 2) +
+  scale_color_gradient(low = "skyblue",high = "black") +
+  theme(legend.position = "none")
+```
+
+
+## Potential Discovery of Fog
+
+This figure explores the edge and interior readings of temperature, humidity, and incident PAR on the dates of 4/28 and 5/4. 
+4/28 begins with a steep drop in temperature on edge and an increase in humidity. Meanwhile, the interior tree sees the opposite happen: a slight increase in temperature and a decrease in humidity. In the early morning, the temperature around the interior tree begins to decrease and then later rises. Looking at these variations, it is clear that the humidity will follow inverse changes.
+
+While temperature and humidity are somewhat opposites, the incident PAR values over those two days show that edge sensors are picking up 0 values and interior sensors record regular PAR levels. One possible explanation for this pattern is that a cloud cover, or heavy fog moved in, which affected the edge sensors but couldn't get to the interior sensors. This might also explain the increase in humidity around the same time. 
+
+These graphs only show weather pattern on 2 days, but it seems to be the case that othese patterns match the behavior of the same variables on most other days as well. 
+
+```{r finding2 ,echo=FALSE,warning=FALSE,cache=TRUE,fig.cap="Temperature, humidity and incident PAR (hamatop) over time on April 28th for which the two trees appear to experience very different environments and on May 4th when the two trees experience a very similar environment.",fig.height=10}
+index <- sample(1:nrow(log.mote),50000)
+ggtemp <- log.mote[index,] %>% 
+  filter(date == ymd("2004-04-28") | date == ymd("2004-05-04")) %>%
+  distinct(date, time, humid_temp, tree) %>%
+  ggplot() + 
+  geom_point(aes(x = as.numeric(hms(time)), y = humid_temp, col = tree), alpha=0.4) + stat_smooth(aes(x = as.numeric(hms(time)), y = humid_temp, col = tree), span=0.9, size=2, se = F) +
+  xlab("time") + ylab("temperature") +
+  facet_wrap(~ date, ncol=2)
+
+
+gghumid <- ggplot(filter(log.mote[index,], 
+              (date >= as.Date("2004-04-28",tz=8) & date <= as.Date("2004-04-28",tz=8)) | 
+                (date >= as.Date("2004-05-04",tz=8) & date <= as.Date("2004-05-04",tz=8))) , 
+       aes(x = as.numeric(time), y = humidity, col = tree)) + 
+  geom_point(alpha=0.4) + stat_smooth(span=0.9, size=2, se = F) +
+  xlab("time") + ylab("humidity") +
+  facet_wrap(~ date,ncol=2)
+
+
+
+dat <- filter(log.mote[index,], 
+              (date >= as.Date("2004-04-28",tz=8) & date <= as.Date("2004-04-28",tz=8)) | 
+                (date >= as.Date("2004-05-04",tz=8) & date <= as.Date("2004-05-04",tz=8)))
+gghama <- ggplot(dat , 
+       aes(x = as.numeric(time), y = hamatop, col = tree)) + 
+  geom_point(alpha=0.4) + stat_smooth(span=0.9, size=2, se = F) +
+  xlab("time") + ylab("Incident PAR") +
+  facet_wrap(~ date,ncol=2)
+
+grid.arrange(ggtemp, gghumid, gghama, ncol=1)
+```
 
 
 ## Third finding
