@@ -16,6 +16,9 @@ library(forcats)
 library(lubridate)
 library(stringr)
 
+# require(devtools)
+#install.packages('textfeatures', version='0.2.0', repos='http://cran.us.r-project.org')
+
 # set default knitr chunks
 knitr::opts_chunk$set(
   echo = FALSE,  # don't print the code chunk
@@ -33,7 +36,7 @@ source("R/load.R")
 source("R/clean.R")
 ```
 
-```{r load-data, echo = FALSE, message = FALSE, warning = FALSE, cache = TRUE}
+```{r load-data, echo = FALSE, message = FALSE, warning = FALSE}
 # note that the cache = TRUE chunk argument means that the results of this 
 # chunk are saved so it doesn't need to be re-run every time you compile the pdf
 
@@ -72,8 +75,8 @@ This report analyzes, critiques, and expands upon "A Macroscope in the Redwoods,
 
 *** Add more Here ***
 
-```{r include= FALSE}
-summary(redwood_all_orig)
+```{r include = FALSE}
+summary(redwood_all)
 ```
 
 # Data
@@ -101,7 +104,7 @@ The data from each sensor was carefully routed via a mesh netowrk. Through this,
 
 The sensor readings were aggregated in 2 datasets: wireless sensor network and data logger. Data logger includes readings from 39 nodes placed on the "edge" (radially 1m from the tree) and 30 nodes placed on the "interior" (radially 0.1m from the tree). The wireless sensor network includes readings from 29 nodes on the "interior".
 
-Each node had a battery and two sensor boards; one board captured radiation, the other captured temperature and humidity. The result was 4 value readings from each node: temperature, humidity, incident photosynthetically active radiation (PAR), and reflected PAR. By planting sensors at every 2 meters of height (between 15m and 70m) and at both 0.1m and 1m away from the tree, they ensured data which considers spatial variation. A majority of these sensors had to be placed on the tree's west side to gain protection from the tree's thicker foliage. Temporally, the data was recorded at 5 minute intervals from April 27 to June 10, 2004, giving a potenial total of 1.7 million data points. The team extracted meaning from the resulting set of 820,700 data points, which is a 49% overall yield. Specifically, the logger data has only 301,056 observations and the network data has only 114,975 observations. Clearly there are a lot of missing values and faulty data points, which are addressed in more detail in the next section. 
+Each node had a battery and two sensor boards; one board captured radiation, the other captured temperature and humidity. The result was 4 value readings from each node: temperature, humidity, incident photosynthetically active radiation (PAR), and reflected PAR. By planting sensors at every 2 meters of height (between 15m and 70m) and at both 0.1m and 1m away from the tree, they ensured data which considers spatial variation. A majority of these sensors had to be placed on the tree's west side to gain protection from the tree's thicker foliage. Temporally, the data was recorded at 5 minute intervals from April 27 to June 10, 2004, giving a potenial total of 1.7 million data points. However, the logger data has only 301,056 observations and the network data has only 114,975 observations. Clearly, there are a lot of missing values and faulty data points.
 
 ## Data Cleaning
 
@@ -111,17 +114,77 @@ Each node had a battery and two sensor boards; one board captured radiation, the
 - You may find it helpful to include relevant plots that help to explain the choices you made when cleaning the data
 - Be transparent! This allows for others to read your work and make their own educated decisions on how best to preprocess the data.
 
-The biggest problems in the dataset are missing values, nonsensical values, and an abundance of outliers, all of which make analysis impossible. The data contains the following variables:
+The biggest problems in the dataset are missing values, nonsensical values, and an abundance of outliers, all of which make analysis impossible. The data contains the following meaningful variables:
   
-Variable      | # of Missing (NA) Values
-------------- | --------------------  
-Humidity      |               12,532
-Temperature   |               12,532
-Adj. humidity |               12,532
-Incident PAR  |               12,532
-Reflected PAR |               12,532
-Height        |                6,371
-Distance      |                6,371
+Variable      | Meaning                     | # of Missing (NA) Values
+------------- | --------------------------- | ------------------------  
+result_time   | time of each measurement    |                        -
+epoch         | ID of each measurement      |                        -  
+nodeid        | unique ID for each node     |                        -
+voltage       | voltage of node             |                        -
+humidity      | relative humidity (%)       |                   12,532
+humidity_temp | temperature reading $(^o$C) |                   12,532
+hamatop       | incident PAR                |                   12,532
+hamabot       | reflective PAR              |                   12,532
+
+There are also variables called parent and depth, but the paper does not give a description about how to work with these. These 2 variables are removed from the data. Out of the 416,031 total measurements (including network and logger), there are 12,532 missing values for the climatic variables. 
+
+```{r fig.cap="Histogram showing the number of observations for the net dataset (red) obverlaid onto a histogram showing the number of observations for the log dataset (blue) over time"}
+n.log <- nrow(redwood_log)
+n.net <- nrow(redwood_net)
+matches <- inner_join(select(redwood_net, nodeid, epoch),
+                      select(redwood_log, nodeid, epoch),
+                      by=c("nodeid", "epoch"))
+
+n.node.log <- length(unique(redwood_log$nodeid))
+n.node.net <- length(unique(redwood_net$nodeid))
+n.node.both <- length(unique(matches$nodeid))
+
+n.node.log <- group_by(redwood_log, nodeid) %>% summarize(n = n())
+n.node.net <- group_by(redwood_net, nodeid) %>% summarize(n = n())
+n.node.lognet <- inner_join(n.node.log, n.node.net, by = "nodeid")
+colnames(n.node.lognet) <- c("nodeid","n.log","n.net")
+
+
+# log nodes with < 1000 obs: 2, 24, 27, 29, 40, 62, 109, 114, 200 and 65535
+few.data.log <- unlist(filter(n.node.log, n < 1000) %>% select(nodeid))
+names(few.data.log) <- NULL
+# net nodes with <1000 obs: 3, 22, 78, 135, 144, 145, 196, 198
+few.data.net <- unlist(filter(n.node.net, n < 1000) %>% select(nodeid))
+names(few.data.net) <- NULL
+
+vars.rem.log <- which(colnames(redwood_log) %in% c("humid_adj","parent","depth"))
+redwood_log <- redwood_log[ ,-vars.rem.log]
+
+vars.rem.net <- which(colnames(redwood_net) %in% c("humid_adj","parent","depth"))
+redwood_net <- redwood_net[ ,-vars.rem.net]
+
+# put correct times in log
+redwood_log <- inner_join(redwood_log, dates, by="epoch")
+redwood_net <- inner_join(redwood_net, dates, by="epoch")
+
+vars <- colnames(redwood_log)
+
+ggplot(redwood_log) + 
+  geom_histogram(aes(x = mdy(date)), col = "white", alpha = 0.5, fill = "blue") +
+  xlab("time") + ylab("# obs") + ggtitle("Number of Observations from Data Logger (blue) vs Wireless Network (red)") +
+  theme(text = element_text(size=10)) +
+  scale_y_continuous(limits = c(0,30000)) +
+  geom_histogram(data=redwood_net,aes(mdy(date)), col= "white", fill = "red",alpha=0.5) 
+```
+
+
+It is also interesting to look at how well each of the nodes logged data. We can see that the data logger has more recorded observations, probably due to the fact that there are more nodes for logger. However, 28 of the nodes were common to both the wireless network and the data logger datasets. Of these 28 nodes, there are 10 nodes for which the data logger contained less than 1,000 observations and 8 nodes for which the network provided less than 1,000 observations, which means there is a lot of missing data here. 
+
+The number of overall observations made over time from both the data logger and the wireless network is presented in the figure above. At both tails of the time period, the data logger collected measurements while the wireless network did not. When collecting data, the number of observations from the wireless network was fairly constant, but definitely not constant for the data logs. This could be because if the wireless network is up and running, it will work consistently. However, the data logger was activated in case of any failures, which was most likely happening before the wireless network was set up.
+
+After May 5th, the number of observations made daily approximately halves, and in the days following May 25th, the logger almost records 0 observations. According to Tolle et al., this is because  data logs "filled up".  Thus for the sake of insightful analysis, this report primarily examines the data logger dataset.
+
+The variable humid_adj looked very similar to variable humidity, so humid_adj was also removed. There are also humidity values out of the 0 - 100 range, but this is nonsensical because this is a relative percentage. However, the humidity values above 100% visually seemed to fit with the data so those remained in the data, and could have happened due to a calibration error.
+
+The logger dataset, the result_time variable had only one date (14:25:00, November 10th, 2004) repeated. Using the external file which had the correct epoch and result_time, the accurate times of measurement were put in.
+
+The dataset has a large amount of missing values. This is because there are many node/time combinations not present in the dataset. Also there are 8,270 observations from 3 nodes in the log dataset with NA values reported for each of the measurements taken, which had to be removed since more than 60% were NA. This is probably due to the node not functioning correctly for a large amount of time.
 
 
 ## Data Exploration

@@ -23,9 +23,10 @@ cleanDatesData <- function(date_df) {
            # combine date and time into single datetime variable
            datetime = mdy_hms(paste(date_sep, time_sep)),
            # convert day to a number
-           day = as.numeric(as.character(day))) %>%
+           day = as.numeric(as.character(day)),
+           number = as.numeric(as.character(number))) %>%
     # remove original date vairable and rename date_sep and time_sep
-    select(-date, date = date_sep, time = time_sep)
+    select(epoch = number, -date, date = date_sep, time = time_sep)
  
   return(date_df)
 }
