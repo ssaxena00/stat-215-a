@@ -1,7 +1,6 @@
 ---
 title: "Lab 1 - Redwood Data, Stat 215A, Fall 2021"
-author: "Sahil Saxena"
-date: "`r format(Sys.time(), '%B %d, %Y')`"
+author: 
 header-includes:
    - \usepackage{float}
 output: 
