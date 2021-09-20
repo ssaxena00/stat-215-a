@@ -1,0 +1,13 @@
+Peer Review Guide (Optional)
+- For every section you review, please write a short comment explaining your decision and indicate a score out of 10.
+A few thing to consider while you review the reports:
+
+1. EDA: Does the report present important patterns in the data?
+2. Reality Check: Asses quality of cleaning. Does the reality check help in avoiding confirmation bias?
+3. Critique: Is the critique clear? Does it demonstrate understanding of the paper?
+4. Stability: Asses choice of judgement call and perturbation method.
+5. Findings: Any interesting patterns revealed? Are the findings easy to understand?
+
+General comments can include a general assessment of how well crafted the report is
+
+Please fill out the `report.csv` file within each student folder, and push the changes by 9.26 at midnight.

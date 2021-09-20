@@ -1,0 +1,545 @@
+---
+title: "Lab 1 - Redwood Data, Stat 215A, Fall 2021"
+date: "`r format(Sys.time(), '%B %d, %Y')`"
+header-includes:
+   - \usepackage{float}
+output: 
+  pdf_document:
+    number_sections: true
+---
+
+# Introduction
+
+In Tolle et al, the authors describe how deploying a wireless sensor network onto a redwood tree can aid in being able to accurately describe the dynamics associated with the microclimate (air temperature, relative humidity, and photosynthetically active solar radiation) surrounding the tree. Recall that redwood trees are extremely tall and relatively wide. The use of wireless sensors enables fine-grained collection of climate data along and near the trees without risking human injury or damage to the tree. The ability to gain a wealth of data in this space can help better understand how climate change can affect redwood trees. Expanding this technology to capture a wider number of trees in a redwood forest would also yield broader data on how a redwood forest behaves.
+
+# Data
+
+In this section, we describe the data collection process, our data cleaning process, and some exploratory data analysis. 
+
+## Data Collection and Description
+
+Sensors, as part of a wireless sensor network, were placed on a 70 meter tall redwood tree approximately 2 meters apart from each other starting at 15 meters high (where the canopy began). Most sensors were placed on the west side of the tree as it had a thicker canopy and thus offered better protection against environmental factors not associated with the tree. Measurements from each sensor were taken 5 minutes apart from April 27, 2004 at 5:15pm PDT to June 10, 2004 at 2:00pm PDT. Important climate variables were collected, including temperature, humidity, and light levels. Temperature was measured in degrees Celsius and relative humidity was presented as a percentage. Light was measured using readings of photosynthetic active radiation (PAR) with a wavelength range from 350 to 700 nm (the range of light plants use to grow via photosynthesis) in units of micromoles per meter squared per second ($\mu$mol/m$^2$/s). Both incident (with sensors in direct sunlight) and reflected (with sensors being shaded) levels of PAR were obtained.
+
+A brief description of each recorded variable and its associated units is provided in the table below.
+
+Variable     |  Description                                     | Units
+-------------|--------------------------------------------------|--------------------------
+meas_time    | Time the measurement was taken                   | YYYY-MM-DD HH:mm:ss PDT
+result_time  | Time the measurement was downloaded              | YYYY-MM-DD HH:mm:ss PDT
+epoch        | Identifier for time the measurement was taken    | 
+nodeid       | Identifier for sensor                            |
+parent       | Parameter for sensor network structure           |
+depth        | Parameter for sensor network structure           |
+voltage      | Volts measured from tree                         | V (volts)
+humidity     | Relative humidity                                | %RH (relative humidity)
+humid_temp   | Temperature                                      | °C
+humid_adj    | Adjusted relative humidity                       | %RH (relative humidity)             
+hamatop      | Incident PAR (sensor on the top)                 | $\mu$mol/m$^2$/s
+hamabot      | Reflected PAR (sensor on the bottom)             | $\mu$mol/m$^2$/s
+Height       | Vertical distance of sensor to the ground        | m (meters)
+Direc        | Direction sensor faces on tree                   | North(N)/South(S)/East(E)/West(W)
+Dist         | Radial distance of sensor to trunk of the tree   | m (meters)
+Tree         | Sensor tree location descriptor                  | interior / edge
+
+## Data Cleaning
+
+Before describing the details of our data cleaning process, we summarize it in the table below.
+
+Number of Samples  |  Data Processing Step                                     
+-------------------|----------------------------------------------------------------------------------------
+416,036            | Initial Sample Size
+416,035            | Remove sample from node id (65535) for readings out of range
+416,034            | Remove sample from parent id (2058) for readings out of range
+395,406            | Remove duplicate samples
+383,326            | Remove samples with missing values across humidity, humid_temp, humid_adj, hamatop, hamabot
+255,264            | Remove samples with voltage outside the range 2.4 - 3.0 volts
+250,857            | Remove samples if the Reflective PAR is greater than the Incident PAR
+250,739            | Remove samples if they differ by < 2 units across any continuous variables
+250,729            | Remove samples if there exists a parent or depth mismatch
+250,723            | Remove samples if PAR readings are inconsistent
+250,721            | Remove samples if they differ by > 2 units across any continuous variables
+
+First, we verified that the tree data set in 'sonoma-data-all.csv' was a concatenation of 'sonoma-data-log.csv' and 'sonoma-data-net.csv'. Then, we attempted to match the 'ID' column from 'mote-location-data.txt' to 'nodeID' in the 'sonoma-data-all.csv' data set because, theoretically, each mote (collection of sensors/sensor unit) should correspond to a sensor node. There were 3 node IDs in the tree data set that did not match to a mote ID (including one node that was dropped later as part of data cleaning). As there was no other clear identifier to match with and with the majority of the node IDs matching, we stuck with this mapping and merged the two files. 
+
+
+```{r setup,  echo=FALSE, message=FALSE, warning=FALSE, results='hide', fig.keep='all'}
+### Environment Set Up ###
+
+# load libraries
+library(ggplot2)
+library(gridExtra)
+library(grid)
+library(tidyr)
+library(patchwork)
+library(plyr)
+library(dplyr)
+
+# data path
+path <- "data/"
+
+### Load Data ###
+
+# load data as data frames
+tree_data_orig <- read.csv(paste0(path, 'sonoma-data-all.csv'))
+mote_data <- read.table(paste0(path, 'mote-location-data.txt'), header=TRUE)
+tree_log <- read.csv(paste0(path, 'sonoma-data-log.csv'))
+tree_net <- read.csv(paste0(path, 'sonoma-data-net.csv'))
+
+# convert reference of epochs and their corresponding dates into a data frame
+epoch_dates <- list(strsplit(gsub("[=]", "'", gsub("[}{]", "", readLines(paste0(path, 'sonoma-dates-epochDates.txt')))), "' '"))[[1]][[1]]
+epoch_dates <- epoch_dates[-1]
+epoch_nums <- list(strsplit(gsub("[=]", "", gsub("[][]", "", readLines(paste0(path, 'sonoma-dates-epochNums.txt')))), " "))[[1]][[1]]
+epoch_nums <- as.numeric(epoch_nums[-c(1, 2, length(epoch_nums))])
+epoch_data <- data.frame(meas_time = epoch_dates, epoch = epoch_nums)
+
+# check that combining 'sonoma-data-log.csv' and 'sonoma-data-network.csv' gives the 'sonoma-data-all.csv' file
+tree_data_check <- rbind(tree_net, tree_log)
+identical(tree_data_orig, tree_data_check)
+
+### Mote ID ###
+
+# check which node IDs do not correspond to a mote ID
+unique(tree_data_orig$nodeid)[!unique(tree_data_orig$nodeid) %in% unique(mote_data$ID)]
+# check which mote IDs do not correspond to a node ID
+unique(mote_data$ID)[!unique(mote_data$ID) %in% unique(tree_data_orig$nodeid)]
+colnames(mote_data)[which(colnames(mote_data) == "ID")] = "nodeid"
+# merge tree data with mote data
+dim(tree_data_orig)
+tree_data <- merge(tree_data_orig, mote_data, all.x = T, by = 'nodeid')
+dim(tree_data)
+```
+
+Looking closer at the unique node IDs, we noticed one of the node IDs is '65535', which is equal to 2^16-1 (a common overflow number in computation). Taking a closer look at the readings for this node, it was clear they were not in sensible ranges for multiple variables and it was dropped.
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, results='hide', fig.keep='all', fig.align='center', fig.width=6, fig.height=4}
+## Node ID, Parent, and Depth ##
+
+# look at unique node ids
+sort(unique(tree_data$nodeid))
+
+# note that a nodeid of 65535 = 2^16 - 1 which is a common overflow number
+# examining further we can see the entries for these nodes are not in normal ranges and it can be dropped
+dim(tree_data)
+tree_data[which(tree_data$nodeid == 65535), ]
+tree_data <- tree_data[-which(tree_data$nodeid == 65535), ]
+dim(tree_data)
+```
+
+We next looked at the other network parameters, 'parent' and 'depth'. We checked whether the unique entries of 'nodeid' appeared in 'parent' (they did) but not all unique entries of 'parent' appeared in 'nodeid'. Two unique parent entries '65535' and '2058' also appeared to be out of the typical range of values which otherwise range from 0 to 200. We note that readings for nodes associated with parent '2058' had anomalous readings and were dropped. We verified that all 'nodeid' entries corresponded to a single 'parent'. Finally, we noted that 'depth' had 8-bit values and did not perform any cleaning beyond ensuring consistency between 'nodeid' and 'depth' across readings.
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, results='hide', fig.keep='all'}
+## Node ID, Parent, and Depth ##
+
+# parent that does not appear in list of unique node ids
+unique(tree_data$parent)[!(unique(tree_data$parent) %in% unique(tree_data$nodeid))]
+# node id that does not appear in list of parents
+unique(tree_data$nodeid)[!(unique(tree_data$nodeid) %in% unique(tree_data$parent))]
+# all unique parent values
+sort(unique(tree_data$parent))
+
+# check that (nodeid, parent) are never the same value (x, x)
+df_node_parent <- distinct(tree_data[, c("nodeid", "parent")])
+df_node_parent[which(df_node_parent$parent - df_node_parent$nodeid == 0), ]
+
+# a value of 2058 is outside the typical range for node parent identifiers
+# examining further we can see the entries for these nodes are not in normal ranges and it can be dropped
+dim(tree_data)
+tree_data[which(tree_data$parent == 2058), ]
+tree_data <- tree_data[-which(tree_data$parent == 2058), ]
+dim(tree_data)
+
+# all unique depth values
+sort(unique(tree_data$depth))
+```
+
+Next, we looked at the timestamps in the dataset. We saw that each entry of the 'result_time' column was most likely the time the data was downloaded and not when the sensor actually took a reading in real time. This appears to be the case because the time frame of the readings (May 7, 2004 at 6:24pm - November 10, 2004 at 2:25pm) are inconsistent with those of the study as described in Tolle et all (April 27th 2004 at 5:10pm - June 10th 2004 at 2:00pm) and the readings are also not in multiples of 5 minutes past the hour like they should be. Even more so, for all 301,056 samples in 'sonoma_data_net.csv', the time reading is uniformly the same date (November 10, 2004 at 2:25pm). However, looking at the data in 'sonoma-dates-epochDates.txt' and 'sonoma-dates-epochNums.txt', we found a list of specific measurement times and epochs (a number associated to each time), respectively. We found that epochs and measurement times mapped to each other uniquely; hence, we decided to map the 'epoch' column in the 'sonoma-data-all.csv' file to the times in this epoch reference data instead of using 'result_time'. After doing this, the time frame of readings then very closely aligned to what was in the paper (April 27, 2004 at 5:15pm - June 10, 2004 at 2:00pm): all readings were in 5 minute intervals, and all epochs in the data had a match to this epoch reference.
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, results='hide', fig.keep='all'}
+### Time and Epochs ###
+
+# first and last 'result_time' readings in data
+tree_data <- tree_data[order(tree_data$result_time), ]
+tree_data$result_time[1]
+tree_data$result_time[nrow(tree_data)]
+
+# all the unique time readings from the log data
+unique(tree_log$result_time)
+
+# check no repeated epoch numbers in file
+identical(nrow(epoch_data), length(unique(epoch_data$meas_time)))
+# epoch numbers match uniquely to a measurement time
+identical(length(unique(epoch_data$meas_time)), length(unique(epoch_data$epoch)))
+
+# merge epoch reference data with tree data
+dim(tree_data)
+tree_data <- merge(epoch_data, tree_data, by.y = 'epoch')
+dim(tree_data)
+
+# every epoch number in data corresponds to an existing epoch in the epoch reference dataset
+which(!(unique(tree_data$epoch) %in% unique(epoch_data$epoch)))
+# lists which reference epochs do not appear in data set
+which(!(unique(epoch_data$epoch) %in% unique(tree_data$epoch)))
+
+# remove data download time
+#tree_data = tree_data[, -which(names(tree_data) == 'result_time')]
+# transform character vector of dates to a POSIXct date
+tree_data$result_time <- strptime(tree_data$result_time, format='%Y-%m-%d %H:%M:%S')
+
+# transform character vector of dates to a POSIXct date
+tree_data$meas_time <- strptime(tree_data$meas_time, format='%a %b %d %H:%M:%OS %Y')
+# order data by measurement time
+tree_data <- tree_data[order(tree_data$meas_time), ]
+# first and last measurement time readings in data
+tree_data$meas_time[1]
+tree_data$meas_time[nrow(tree_data)]
+
+# check readings are 5 minutes apart for each node
+sorted_times <- sort(unique(tree_data$meas_time))
+unique(sorted_times[2:length(sorted_times)] - sorted_times[1:(length(sorted_times) - 1)])
+df_time_gaps <- data.frame(nodeid = integer(), time_gap = integer())
+uniq_nodes <- unique(tree_data$nodeid)
+for(i in 1:length(uniq_nodes)){
+  node_sub = tree_data[which(tree_data$nodeid == uniq_nodes[i]), ]
+  
+  sorted_times <- sort(unique(node_sub$meas_time))
+  time_gaps <- unique(sorted_times[2:length(sorted_times)] - sorted_times[1:(length(sorted_times) - 1)])
+  df_time_gaps <- rbind(df_time_gaps, cbind(rep(uniq_nodes[i]), time_gaps))
+}
+colnames(df_time_gaps) <- c('nodeid', 'time_gap')
+```
+
+After sanitizing the timestamps, we deleted any duplicate rows or rows that had missing values across all the main variables in the tree data ('humidity', 'humid_temp', 'humid_adj', 'hamatop', and 'hamabot').
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, results='hide', fig.keep='all'}
+### Removal of duplicates and missing values ###
+
+# remove duplicate rows
+dim(tree_data)
+tree_data <- distinct(tree_data)
+dim(tree_data)
+
+# remove readings that do not have readings for c(humidity, humid_temp, humid_adj, hamatop, hamabot)
+dim(tree_data)
+tree_data <- tree_data[-which(is.na(tree_data$humidity) & is.na(tree_data$humid_temp) & is.na(tree_data$humid_adj) & is.na(tree_data$hamatop) & is.na(tree_data$hamabot)), ]
+dim(tree_data)
+```
+
+We next looked at voltage values from the sensors. The authors of Tolle et al mention that poor battery life corresponds to strange voltage readings, and that any readings outside of 2.4 - 3 volts can not be trusted. We can see this clearly when looking at the different variables. Shown below is temperature; in particular, we can see that physically improbable values (such as those below zero or those that are very high near 100 C) are all coming from sensors with anomalous readings. Having this knowledge about the sensor's range and seeing how it leads to odd readings, we decided to stick with the range the authors used and remove volts outside the given range.
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, results='hide', fig.keep='all', fig.align='center', fig.align='center', fig.width=5.5, fig.height=3.5}
+# label voltage readings as either low or high
+tree_data$voltage_lowhigh <- rep(0, nrow(tree_data))
+tree_data$voltage_lowhigh[which(tree_data$voltage > 3)] <- 1
+tree_data$voltage_lowhigh[which(tree_data$voltage < 2.4)] <- -1
+tree_data$voltage_lowhigh <- as.factor(tree_data$voltage_lowhigh)
+
+# Plot: voltage by variable
+p <- ggplot(mapping=aes(x=seq_along(tree_data[, 'humid_temp']), y=tree_data[, 'humid_temp']), group=tree_data[, 'humid_temp'])
+p <- p + geom_point(aes(colour=tree_data[, 'voltage_lowhigh']), size = 0.5, alpha = 0.5)
+p <- p + scale_colour_manual(name="Voltage", labels = c("< 2.4", "2.4 - 3.0", "> 3.0"), values=c("dodgerblue", "gray", "forestgreen"))
+p <- p + labs(title = "Temperature Readings", x = "Voltage (V)", y = "Temperature (\u00B0C)")
+p <- p + theme_bw(18)
+p <- p + theme(plot.title = element_text(face = "bold", hjust = 0.5, size=18))
+p
+```
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, results='hide', fig.keep='all'}
+# remove voltage readings outside an acceptable range
+dim(tree_data)
+tree_data <- tree_data[-which(tree_data$voltage > 3 | tree_data$voltage < 2.4), ]
+dim(tree_data)
+```
+
+We also checked whether Reflective PAR readings were ever higher than Incident PAR readings, as this should never happen (reflected light must by definition be weaker than direct light). We removed samples for which this occurred as their measurement readings likely cannot be trusted.
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, results='hide', fig.keep='all'}
+# remove light readings where Reflective PAR is higher the Incident PAR
+dim(tree_data)
+tree_data <- tree_data[-which(tree_data$hamabot > tree_data$hamatop), ]
+dim(tree_data)
+```
+
+Next, we noticed that there were sometimes multiple samples for the same (node, epoch) pair when there should  only be one sample per (node, epoch) pair. We noticed this happened in several different ways. Occasionally, all readings for a node were the same except for voltage. Other times, there were inconsistencies between parent, depth, or both. And, lastly, there were sometimes inconsistencies between the PAR readings. Sometimes, there would be inconsistencies across the continuous variables but by at most 2 units (except for the node with identifier 3 at 2004-11-10 14:25:00, which has starkly different humidity readings: 85.39 and 48.14 percent). In the absence of further information or domain expertise, we have no way of knowing which of the samples is correct. Moreover, the misalignment of node metadata (parent and depth) is concerning. Hence, we chose to drop all implicated samples.
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, results='hide', fig.keep='all'}
+### Identify other strange readings ###
+
+# replace multiple readings that occur at the same time with the average value
+uniq_nodes <- unique(tree_data$nodeid)
+incons_rows_under2 <- c()
+hama_incons_rows <- c()
+parent_depth_incons_rows <- c()
+other_incons_rows <- c()
+vars_of_interest <- c("parent", "voltage", "depth", "humidity", "humid_temp", "humid_adj", "hamatop", "hamabot")
+vars_of_interest_wo_hama = vars_of_interest[-which(vars_of_interest %in% c("hamatop", "hamabot"))]
+for(i in 1:length(uniq_nodes)){
+  print(i)
+  node_sub = tree_data[which(tree_data$nodeid == uniq_nodes[i]), ]
+  epoch_sub = unique(node_sub$epoch[which(duplicated(node_sub$epoch))])
+  if (0 == length(epoch_sub)) {
+    next
+  }else{
+    for(j in 1:length(epoch_sub)){
+      node_sub2 = node_sub[which(node_sub$epoch == epoch_sub[j]), ]
+      # check how large differences in readings are for the numeric variables in the original tree data
+      node_range_diff <- max(apply(node_sub2[, vars_of_interest], 2, max) - apply(node_sub2[, vars_of_interest], 2, min))
+      node_range_diff_wo_hama <- max(apply(node_sub2[, vars_of_interest_wo_hama], 2, max) - apply(node_sub2[, vars_of_interest_wo_hama], 2, min))
+      if(length(unique(node_sub2$parent)) == 1 & length(unique(node_sub2$depth)) == 1 & node_range_diff < 2){
+        incons_rows_under2 <- append(incons_rows_under2, rownames(node_sub2))
+      }else if(length(unique(node_sub2$parent)) == 1 & length(unique(node_sub2$depth)) == 1 & node_range_diff_wo_hama < 2){
+        hama_incons_rows <- append(hama_incons_rows, rownames(node_sub2))
+      }else if(length(unique(node_sub2$parent)) != 1 | length(unique(node_sub2$depth)) != 1 & node_range_diff_wo_hama < 2){
+        parent_depth_incons_rows = append(parent_depth_incons_rows, rownames(node_sub2))
+      }else{
+        other_incons_rows <- append(other_incons_rows, rownames(node_sub2))
+      }
+    }
+  }  
+}
+
+# Remove rows with strange readings
+length(incons_rows_under2)
+length(parent_depth_incons_rows)
+length(other_incons_rows)
+dim(tree_data)
+tree_data <- tree_data[-which(rownames(tree_data) %in% c(incons_rows_under2, hama_incons_rows, parent_depth_incons_rows, other_incons_rows)), ]
+dim(tree_data)
+```
+
+## Data Exploration
+
+There are two humidity variables in the data. As we used humidity in our analyses, it was important to understand what the relationship between the two is. From the figure below, we see that 'humid_adj' is just the humidity variable adjusted. Moreover, looking at the summary statistics of each, we see that the maximum value of 'humidity' is 104.41 and that of 'humid_adj' is 100.2 (also the maximum value in Tolle et al). We suspect that 'humid_adj' is a scaling of the humidity readings to correct for various factors and to provide a maximum reading of 100. Hence, we use 'humid_adj' as our sole humidity variable in our analyses. 
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, results='hide', fig.keep='all', fig.align='center', fig.align='center', fig.width=5.5, fig.height=3.5}
+# Plot: density plot for humidity vs humidity adjusted
+humid_data <- gather(tree_data[, c('humidity', 'humid_adj')], humid_val, measurement)
+p <- ggplot(data=humid_data, aes(measurement, fill = humid_val, colour = humid_val))
+p <- p + geom_density(alpha = 0.3)
+p <- p + scale_colour_manual(values=c("dodgerblue", "orange"), guide = 'none')
+p <- p + scale_fill_manual(name = "Variable", labels = c('humidity', 'adjusted humidity'), values=c("dodgerblue", "orange"))
+p <- p + labs(title = "Humidity Variables", x = "Humidity (%RH)", y = "Density")
+p <- p + theme_bw(18)
+p <- p + theme(plot.title = element_text(face = "bold", hjust = 0.5, size=18))
+p
+```
+
+We then generated a plot of number of readings per node. Per the experimental design, they should all be the same but it is clear that they varied wildly across the nodes. We will come back to this and dive more into whether node lifespan is correlated with any other variables in the findings section.
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, results='hide', fig.keep='all', fig.align='center', fig.width=5.5, fig.height=3.5}
+# Plot: number of readings per node
+plot_data <- tree_data
+plot_data$nodeid <- factor(tree_data$nodeid, levels = names(table(tree_data$nodeid))[order(table(tree_data$nodeid), decreasing = F)])
+p <- ggplot(data=plot_data, aes(nodeid))
+p <- p + geom_bar(fill = "dodgerblue")
+p <- p + labs(title = "Number of Readings per Node", x = "Node ID", y = "Count")
+p <- p + theme_bw(18)
+p <- p + theme(plot.title = element_text(face = "bold", hjust = 0.5, size=18))
+p <- p + theme(axis.text.x=element_text(angle = 90, vjust = 0.5, size=6, face="bold"))
+p
+```
+```{r, echo=FALSE, message=FALSE, warning=FALSE, results='hide', fig.keep='all'}
+summary(tree_data$humidity)
+summary(tree_data$humid_adj)
+```
+
+## Reality Check
+
+From basic meteorological knowledge, we know that humidity should be inversely proportional to temperature; indeed, we see that it is. Moreover, we looked at summary statistics of the variables and saw they were in the correct ranges (except for 'humid_adj', which was a bit off as its maximum is 100.2, not 100). Finally, as we will see in a later section (Finding 2), the light readings exhibit a daily, cyclic pattern. We note that the majority of our sanity checking occurred as we cleaned the data, e.g., the node-epoch pair uniqueness and epoch-timestamp correspondence verification. 
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, results='hide', fig.keep='all', fig.align='center', fig.width=5.5, fig.height=3.5}
+p2 <- ggplot(tree_data, aes(x=humid_temp, y=humid_adj, colour = "pink"))
+p2 <- p2 + geom_point(size = 0.5, alpha = 0.1)
+#p2 <- p2 + geom_smooth(method = "loess", size = 1.5)
+p2 <- p2 + labs(title = "Humidity v. Temperature", x = "Temperature (\u00B0C)", y = "Humidity (%RH)")
+p2 <- p2 + theme_bw(18)
+p2 <- p2 + theme(plot.title = element_text(face = "bold", hjust = 0.5, size=18))
+p2 <- p2 + theme(legend.position="none")
+p2
+```
+
+# Graphical Critique
+
+## Figure 3
+
+The goal of Figure 3 is to understand how temperature, humidity, and both light readings vary on their own as well as functions of time and height. 
+
+In the subfigures in 3(a), we see histograms of the readings. As an overall view of what is happening, this is helpful for gaining a sense of what typical values for measurements are. One point to note here is that all figures appear to use the same number of bins: it is likely that a technique based on sample counts was used to pick the number of bins, or, more simply, a number of bins that led to readable plots was used. 
+
+In the subfigures in 3(b), we see box plots of the values over time. That is, for each day in the study, there is a box plot. This figure is quite crowded, and it is hard to get a sense for what is happening. Granted, we must note that the boxes form something of a band so that we see a band of values across time; however, the incident PAR plots in particular have long tails, and it is hard to get much out of the plots. A trend line, or, a truncation of the tails in the box plots might have been helpful. A similar complaint and summary can be made for the subfigures in 3(c), where for each height value a box plot of the readings is given. If all of these were larger, some of these issues would be ameliorated. Note that the idea of these plots is good, and the data could be presented well using this method with some further refinement. 
+
+In the subfigures in 3(d), box plots for differences from the mean (over time) are plotted for each reading as a function of height. That is, in the same style as 3(c), we have horizontal box plots but this time of the differences of sensor readings from the mean. The same issues as in 3(b) and 3(c) persist, namely that many of these box plots have long tails and the plots are crowded and hard to read. The goal of these plots was to find trends as a function of height; it is hard to see where zero is on the x-axis, but even so, the PAR/light plots are reasonably readable. 
+
+## Figure 4
+
+The goal of Figure 4 is to understand temporal trends within a single day. 
+
+In the first column, the first two rows plot temperature and humidity over time for each node. We see that all of the lines vary together within each plot. It might have been both cleaner and better looking to show a mean trend line and bands around it to capture the same effect, rather than dozens of lines all superimposed. The third and fourth rows in the first column repeat the same idea but for incident and reflected PAR (light). Rather than lines, there are dots plotted and a solid trend line/average. It would be good to know how the trend line was computed: looking at the density of points, it seems as if it is pulled upward of where the bulk of points are by relatively few high-valued points. It is better that there are points here and not lines, as the plot looks cleaner. Note that the choice of green to indicate sunlight is somewhat unusual, and something redder in color might have been more thematic. That said, all of these plots are effective in conveying their message and a sense of what the daily variation in the tree is like. 
+
+The second column of Figure 4 is somewhat difficult to understand, and I found the description in the text to be somewhat difficult to follow. For a particular time in the day, the goal was to present the variation in the readings as a function of height. Each plot has a trend line and some plots around it. The trend line is in a faint green color, and is somewhat hard to follow. There are triangles with different colors (blue and pink) that indicate gradients, where the gradients are taken at the time indicated at the vertical line in the first column of Figure 4.  The final plot (for reflected PAR) is a poor use of space: the majority of the x-axis is devoted to empty space and it is hard to see anything. Granted, it is possible that this plot was intended to present the lack of variation, as it has the same range as the corresponding plot in the first column. 
+
+# Findings
+
+## First finding
+
+We investigate the effect of the tree on temperature and humidity, that is, whether the tree is an interior or an exterior tree. We plot the temperature and humidity for the period April 27 to May 05, grouped by interior and exterior tree status. Note that we only have both of these labels for this time range, as there are no 'exterior' readings after May 05. In general, we see that the readings are similar, i.e., that there is minimal variation. We conclude that to capture the dynamics of a redwood forest, it is most likely not necessary to sample adjacent trees, but a wider spacing/lower sensor density would most likely suffice. 
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, results='hide', fig.keep='all', fig.align='center', fig.width = 8, fig.height = 6}
+# Plot: Time v. Interior/Edge Node
+plot_list <- list()
+plot_titles <- c("Humidity (%RH)", "Temperature (\u00B0C)")
+plot_vars <- c("%RH", "\u00B0C")
+use_times <- (tree_data$meas_time > as.POSIXct("2004-04-27 17:15:00 PDT", format="%Y-%m-%d %H:%M:%OS")) & (tree_data$meas_time < as.POSIXct("2004-05-05 07:30:00 PDT", format="%Y-%m-%d %H:%M:%OS"))
+tree_time_sub <- tree_data[which(use_times), ]
+tree_time_sub <- tree_time_sub[which(tree_time_sub$Tree %in% c('edge', 'interior')), ]
+tree_time_sub$Tree <- factor(tree_time_sub$Tree, levels = c('edge', 'interior'))
+tree_time_sub <- tree_time_sub[, c('humid_adj', 'humid_temp', 'hamatop', 'hamabot', 'meas_time', 'Tree')]
+tree_time_sub$meas_time <- as.POSIXct(tree_time_sub$meas_time)
+for(i in 1:length(plot_vars)){
+  p <- ggplot(tree_time_sub, aes(x=meas_time, y=tree_time_sub[, i], group = Tree))
+  p <- p + geom_point(aes(colour = Tree), size = 0.1, alpha = 0.2)
+  p <- p + labs(title = plot_titles[i], x = "Time", y = plot_vars[i])
+  p <- p + scale_colour_manual(values=c("orange", "dodgerblue"))
+  p <- p + theme_bw(18)
+  p <- p + theme(plot.title = element_text(face = "bold", hjust = 0.5))
+  plot_list[[i]] <- ggplotGrob(p)
+}
+grid.arrange(plot_list[[1]], plot_list[[2]], ncol=1)
+```
+
+## Second Finding
+
+We study the relationship between light (Incident PAR) and direction across time. We focus on two diametrically opposed nodes, one in the northeast of the tree and the other in the south. In particular, we look for a lagged response between the two nodes: as the sun passes through the sky, the northeast node should have an earlier peak the the southern node. Moreover, knowing that in the northern hemisphere, the south and west directions tend to receive more/stronger sunlight, we looked to see if there was a significant difference between the peak levels. We present two figures, first of the light readings on May 03, and second of the light readings between April 27 and May 05. We see that the northeast node peaks a few hours before the southern node. Moreover, our hypothesis about light levels is not substantiated, as the readings between the nodes were generally similar, except for on May 02 and early on May 03, where the northeast node had a marginally higher peak. We also look at temperature on May 01 and May 02, and see that the temperatures on the northeast node peak before those on the southern node. It is interesting to see this similar lag structure between the directions, and also to see that the northeastern temperature peaks at a higher value than that of the southern node. 
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, results='hide', fig.keep='all', fig.align='center', fig.width=8, fig.height=8}
+# Plot: Light vs Time by Direction on May 3
+use_times <- (tree_data$meas_time > as.POSIXct("2004-05-03 00:00:00 PDT", format="%Y-%m-%d %H:%M:%OS")) & (tree_data$meas_time < as.POSIXct("2004-05-03 23:59:59 PDT", format="%Y-%m-%d %H:%M:%OS"))
+tree_sub <- tree_data[which(use_times & tree_data$nodeid %in% c(60, 74)), ] #74 #22 102  60 144  82
+unique(tree_sub$nodeid)
+tree_sub$meas_time <- as.POSIXct(tree_sub$meas_time)
+tree_sub$nodeid <- as.factor(tree_sub$nodeid)
+p1 <- ggplot(tree_sub, aes(x=meas_time, colour = Direc, y=hamatop))
+p1 <- p1 + geom_point(aes(color = Direc), size = 1.5, alpha = 0.8, guide='none')
+p1 <- p1 + labs(title = "Incident PAR of Two Sensors on May 3rd", x = "Time", y = "Light")
+p1 <- p1 + scale_colour_manual(name="Direction", values=c("forestgreen", "darkorchid"))
+p1 <- p1 + theme_bw(18)
+p1 <- p1 + theme(plot.title = element_text(face = "bold", hjust = 0.5))
+p1 <- p1 + theme(axis.text.x=element_text(angle = 60, vjust = 0.5, size=10))
+
+# Plot: Light vs Time by Direction over a week
+use_times <- (tree_data$meas_time > as.POSIXct("2004-04-29 00:00:00 PDT", format="%Y-%m-%d %H:%M:%OS")) & (tree_data$meas_time < as.POSIXct("2004-05-4 23:59:59 PDT", format="%Y-%m-%d %H:%M:%OS"))
+tree_sub <- tree_data[which(use_times & tree_data$nodeid %in% c(74, 60)), ] #74 #22 102  60 144  82
+unique(tree_sub$nodeid)
+tree_sub$meas_time <- as.POSIXct(tree_sub$meas_time)
+tree_sub$nodeid <- as.factor(tree_sub$nodeid)
+p2 <- ggplot(tree_sub, aes(x=meas_time, colour = Direc, y=hamatop))
+p2 <- p2 + geom_point(aes(color = Direc), size=1.5, alpha = 0.8, guide = 'none')
+p2 <- p2 + labs(title = "Incident PAR of Two Sensors over Time", x = "Time", y = "Light")
+p2 <- p2 + scale_colour_manual(name="Direction", values=c("forestgreen", "darkorchid"))
+p2 <- p2 + theme_bw(18)
+p2 <- p2 + theme(plot.title = element_text(face = "bold", hjust = 0.5))
+
+p1 / p2
+```
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, results='hide', fig.keep='all', fig.align='center', fig.width=10, fig.height=6}
+# Plot: Temperature vs Time by Direction on May 1 and May 2
+use_times <- (tree_data$meas_time > as.POSIXct("2004-05-01 00:00:00 PDT", format="%Y-%m-%d %H:%M:%OS")) & (tree_data$meas_time < as.POSIXct("2004-05-02 23:59:59 PDT", format="%Y-%m-%d %H:%M:%OS"))
+tree_sub <- tree_data[which(use_times & tree_data$nodeid %in% c(60, 74)), ] #74 #22 102  60 144  82
+unique(tree_sub$nodeid)
+tree_sub$meas_time <- as.POSIXct(tree_sub$meas_time)
+tree_sub$nodeid <- as.factor(tree_sub$nodeid)
+p2 <- ggplot(tree_sub, aes(x=meas_time, colour = Direc, y=humid_temp))
+p2 <- p2 + geom_point(aes(color = Direc), size=1.5, alpha = 0.8, guide = 'none')
+p2 <- p2 + labs(title = "Temperature of Two Sensors over Time", x = "Time", y = "Temperature")
+p2 <- p2 + scale_colour_manual(name="Direction", values=c("forestgreen", "darkorchid"))
+p2 <- p2 + theme_bw(18)
+p2 <- p2 + theme(plot.title = element_text(face = "bold", hjust = 0.5))
+p2
+```
+
+## Third Finding
+
+Recall that in Tolle et al, they placed the majority of the nodes in the west and south-west directions, primarily to protect against environmental factors. Furthermore, nodes were placed at varying distances from the trunk, but were primarily placed close to the trunk, so that measurements characterized the tree and not its vicinity. In our data cleaning and exploration process, we noticed that several nodes had missing readings or readings that had to be dropped. It is plausible that environmental factors, perhaps related to directionality, distance from the trunk, or height (and hence shelter from the elements), impacted the longevity or the number of readings that a particular node yielded. We present two figures below. In both, we look at the number of readings as function of node height. In the first figure, we color the points by distance from the trunk, and in the second, we color the nodes by their direction. We see that there is no clear relationship between the factors, or, that these plots do not indicate that node placement affected node lifespan. 
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, results='hide', fig.keep='all', fig.align='center', fig.width = 5, fig.height = 4}
+dist_node <- tree_data[, c("nodeid", "Dist","Height")]
+dist_node <- distinct(dist_node)
+node_count <- data.frame(table(tree_data$nodeid))
+colnames(node_count) = c("nodeid", "freq")
+dist_node_count <- merge(node_count, dist_node, by = "nodeid")
+dist_node_count <- dist_node_count[-is.na(dist_node_count$Dist), ]
+dist_node_count$Dist <- as.factor(dist_node_count$Dist)
+p1 <- ggplot(data=dist_node_count, aes(x = Height, y = freq))
+p1 <- p1 + geom_point(aes(color = Dist), size = 2, guide='none')
+p1 <- p1 + scale_colour_manual(name = "Distance", values=c("darkred", "dodgerblue1", "dodgerblue2", "dodgerblue3", "dodgerblue4", "navy"))
+p1 <- p1 + labs(title = "Node Lifespan", x = "Height", y = "Number of Readings")
+p1 <- p1 + theme_bw(18)
+p1 <- p1 + theme(plot.title = element_text(face = "bold", hjust = 0.5))
+p1 <- p1 + theme(legend.position = c(0.11, 0.65), legend.title = element_text(size = 10), legend.text = element_text(size = 8))
+p1
+```
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, results='hide', fig.keep='all', fig.align='center', fig.width = 5, fig.height = 4}
+dist_node <- tree_data[, c("nodeid", "Direc","Height")]
+dist_node <- distinct(dist_node)
+node_count <- data.frame(table(tree_data$nodeid))
+colnames(node_count) = c("nodeid", "freq")
+dist_node_count <- merge(node_count, dist_node, by = "nodeid")
+dist_node_count <- dist_node_count[-is.na(dist_node_count$Direc), ]
+dist_node_count$Direc <- factor(dist_node_count$Direc, levels = unique(dist_node_count$Direc))
+dist_node_count$west_or_not <- mapvalues(dist_node_count$Direc, from = c('W', 'S', 'SW', 'WSW', 'WNW', 'NE', 'E', 'ESE', 'NW'), to = c('W', 'N', 'W', 'W', 'W', 'N', 'N', 'N', 'W'))
+p2 <- ggplot(data=dist_node_count, aes(x = Height, y = freq))
+p2 <- p2 + geom_point(aes(color = west_or_not), size=2, guide='none')
+p2 <- p2 + scale_colour_manual(name="Direction", labels=c("west-facing", "non-west facing"), values=c("orange", "blue"))
+p2 <- p2 + labs(title = "Node Lifespan", x = "Height", y = "Number of Readings")
+p2 <- p2 + theme_bw(18)
+p2 <- p2 + theme(plot.title = element_text(face = "bold", hjust = 0.5))
+p2 <- p2 + theme(legend.position = c(0.19, 0.81), legend.title = element_text(size = 9.5), legend.text = element_text(size = 7.5))
+p2
+```
+
+## Stability Check
+
+We return to finding 2, where we select a different time window and return to the temperature analysis. We keep the directions identical (northeast and south). Indeed, we see a similar result as in finding 2, where the northeast temperature peaks earlier than the southern temperature by a few hours, and at a higher value once again. Note that the pattern, while continued, is not as strong as before. Ideally, we would study this for more node-direction pairs and across a larger time window to substantiate this relationship.  
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, results='hide', fig.keep='all', fig.align='center', fig.width=10, fig.height=6}
+# Plot: Temperature vs Time by Direction on May 3 and May 4
+use_times <- (tree_data$meas_time > as.POSIXct("2004-05-03 00:00:00 PDT", format="%Y-%m-%d %H:%M:%OS")) & (tree_data$meas_time < as.POSIXct("2004-05-04 23:59:59 PDT", format="%Y-%m-%d %H:%M:%OS"))
+tree_sub <- tree_data[which(use_times & tree_data$nodeid %in% c(60, 74)), ] #74 #22 102  60 144  82
+unique(tree_sub$nodeid)
+tree_sub$meas_time <- as.POSIXct(tree_sub$meas_time)
+tree_sub$nodeid <- as.factor(tree_sub$nodeid)
+p2 <- ggplot(tree_sub, aes(x=meas_time, colour = Direc, y=humid_temp))
+p2 <- p2 + geom_point(aes(color = Direc), size=1.5, alpha = 0.8, guide = 'none')
+p2 <- p2 + labs(title = "Temperature of Two Sensors over Time", x = "Time", y = "Temperature")
+p2 <- p2 + scale_colour_manual(name="Direction", values=c("forestgreen", "darkorchid"))
+p2 <- p2 + theme_bw(18)
+p2 <- p2 + theme(plot.title = element_text(face = "bold", hjust = 0.5))
+p2
+```
+
+# Discussion
+
+We have performed an extensive data cleaning procedure on this dataset. Indeed, after cleaning, we are left with 60.2 percent of the original data. While there are thousands of samples, there are relatively few covariates, so that the data size is not problematic to handle. However, the large number of samples makes visualization tricky, as we must restrict our view to smaller windows or a subset of nodes to create meaningful and interpretable plots. 
+
+Along the way, we made several assumptions about the data and its structure. Many of these assumptions were borne out of necessity: it is difficult to analyze a dataset that we have not designed and cannot query the collectors about. In particular, many of the samples that were discarded in cleaning were discarded because of metadata issues, e.g., node id, timestamp, and metadata fields like 'parent' and 'depth' not matching up. Moreover, we made assumptions about the relationship between the humidity and the 'humid_adj' fields in the data that we cannot fully substantiate. It may be necessary to perform further exploration of this variable before further analyses. Another variable whose processing relied on assumptions is voltage. While we followed the prescription in Tolle et al, it is not clear whether this is the best path forward. 
+
+This dataset was collected in a real forest on real trees. That is, it offers a view of reality, albeit one that is necessarily skewed by how it was collected, the various events that occurred during its collection (sensor failure, data storage overflow, etc.), and how it was stored and processed. Moreover, our visualizations necessarily carry our biases and further color the view of reality in the data. However, it still offers great potential for effecting a change going forward. This line of research can help understand how redwood trees and forests are affected by climate change, as well as how their microclimates behave. 
+
+A longer term study with more trees and more robust sensors would be a natural next step. Such a study would allow for a view into the behavior of the trees across seasons, and would offer more, hopefully cleaner and higher quality data to analyze. 
+
+# Conclusions
+
+We have studied the dataset collected and presented in Tolle et al. We have performed an extensive data cleaning procedure that found several inconsistencies in the dataset, a brief exploratory data analysis, and a short look at a few interesting questions about the relationships between the variables. Our analyses look at questions about the study itself (the effect of node/sensor placement on data) and about the underlying natural processes (e.g., temperature v. humidity, sunlight as a function of direction) that directly address the main problem of understanding the microclimate of a redwood tree. 
+
+# Academic honesty statement
+
+Professor Bin Yu,
+
+All coding for the analyses, written text for the report, and other associated work for this lab was done by me and represents my own work.
+
+# Bibliography
+
+A macroscope in the redwoods, \textit{Tolle, Gilman and Polastre, Joseph and Szewczyk, Robert and Culler, David and Turner, Neil and Tu, Kevin and Burgess, Stephen and Dawson, Todd and Buonadonna, Phil and Gay, David and others}, Proceedings of the 3rd international conference on Embedded networked sensor systems.
+
+
