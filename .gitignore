@@ -1,1 +1,9 @@
 .idea/
+**/test.sh
+**/data/
+**/documents/
+**/exploration*
+**/.DS_Store
+lab*_cache/
+.DS_Store
+lab*_files/

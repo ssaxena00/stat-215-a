@@ -1,0 +1,129 @@
+---
+title: "Lab 2 - Linguistics Data, Stat 215A, Fall 2021"
+author: "Sahil Saxena"
+date: "`r format(Sys.time(), '%B %d, %Y')`"
+header-includes:
+   - \usepackage{float}
+output: 
+  pdf_document:
+    number_sections: true
+---
+
+```{r setup, echo = FALSE, message=FALSE, warning=FALSE}
+# load in useful packages
+library(tidyverse)
+library(forcats)
+library(lubridate)
+library(stringr)
+require(gridExtra)
+
+# require(devtools)
+#install.packages('textfeatures', version='0.2.0', repos='http://cran.us.r-project.org')
+
+# set default knitr chunks
+knitr::opts_chunk$set(
+  echo = FALSE,  # don't print the code chunk
+  warning = FALSE,  # don't print warnings
+  message = FALSE,  # don't print messages
+  fig.width = 6,  # set default width of figures
+  fig.height = 4,  # set default height of figures
+  fig.align = "center",  # always align figure in center
+  fig.pos = "H",  # always plot figure at the exact location of the code chunk
+  cache = FALSE)  # don't cache results
+
+source("R/load.R")
+source("R/clean.R")
+```
+
+
+# Introduction
+
+Dialects, or linguistic variations, may contain interesting insights about the social structure of a group. As seen in the survey of American dialects, collected by Vaux [1], dialects can vary according to geography, social class, sex, and age. Consequently, they can potentially reveal the underlying social identity and shared history of groups with similar dialects. The data is a result of surveying over 47 thousands individuals in all states and districts of the USA. The results in this report mostly support traditional ideas of American dialects; using dimensionality reduction and clustering methods, we can learn more about the relationship between dialect groups and regional geography.
+
+
+# The Data
+
+The linguistics data is collected by the Harvard Dialect Survey in 2003. The survey consisted of 122 questions that explored the variations in the phonetic and lexical differences in the English language across the USA. This report focuses on analyzing only the 67 questions that explore lexical differences (e.g. "Do you cut or mow the lawn or grass?").
+
+Two different representations of the dataset exist: LingData and LingLocation. LingData includes the categorical responses to 67 survey questions by 47,471 respondents, while also containing location data of each respondent, through state, city and zip code. The latitude and longitude (of the center of each zip code) measurements are also added to each observation.
+
+LingLocation is a binary encoding of the categorical data described above, binned into one degree longitude by one degree latitude squares. This partitions the map of US into 781 cells; the data for each cell is encoded as the sum of binary response vectors for individuals who belong to the cell.
+
+With this data, we can gain insights into how specific responses to specific questions vary over different regions in the USA. 
+
+```{r load-data}
+ling_data_orig <- loadLingData()
+ling_location_orig <- loadLingLocation()
+
+# quest.use: questions in words
+# all.ans: maps letter answer to word answer for each question
+load("data/question_data.RData")
+
+ling_data <- cleanLingData(ling_data_orig)
+ling_location <- cleanLingLocation(ling_location_orig)
+```
+
+
+
+
+## Data Cleaning
+
+Compared to the previous lab, data quality from this survey is much higher, with fewer missing values and inconsistencies.
+
+For LingData, 1,020 observations were removed for which either longitude or latitude information was missing. This data could have been corrected by inserting the real longitude and latitude for these cities. However there are many missing value zip codes and many discrepancies in the observations that had missing lat and long, such as fictional or overly broad city and town names (e.g. "Chicagoland"). Furthermore, 107 and 98 observations were removed from Hawaii and Alaska, respectively, to restrict the analyses to the 48 contiguous states. The number of samples from these two states is too sparse to impact the entire data set (only 1.06% of total). 
+
+Also, some observations have missing responses to some of the survey questions; with a large sample size, a stringent filter was applied to remove any observations with any missing values. Remaining are a total of 39,051 observations for further analysis.
+
+For LingLocation, cells with extreme lat/long values, i.e. longitude < -150 or latitude > 50, (cells from Alaska and Hawaii) were removed, leaving a total of 758 cells. There are also some cases where the number of people who responded to a question in a cell did not add up to the total number of people in that cell. Since this type of missing data was more difficult to filter out, these observations were left in the sample. 
+
+Consequently, LingData is used for the main analysis and LingLocation is primarily used to validate these results in the Stability section.
+
+## Exploratory Data Analysis
+
+Here we explore a few survey questions and their potential relationship to geography. Figure 1 shows the distribution of responses, across the USA, to 2 questions: 73 - What is your general term for rubber-soled shoes worn in gym class? and 103 - What do you call the thing from which you might drink water in a school?
+
+Figure Q73 shows the distribution of the two most common answers, which are "sneakers" and "tennis shoes" (removing other answer choices to make interpretability easier). Those who answered "sneakers" are concentrated in the Northeast region while "tennis shoes" is more commonly used throughout the rest of the country; some overlap does exist, which indicates people may have moved from one region to another or began adapting to  different terminology in their native regions. 
+
+Figure Q103 shows the distribution of the most common answers, which are "drinking fountain", "water fountain", and "bubbler." The term "water fountain" seems to be more commonly used in the West, with a high concentration in southern California. On the other hand, "drinking fountain" seems to be more favored in the Northeast and the Southeast. The Midwest seems to use both terms at similar frequencies. Interestingly, individuals who responded "bubbler" form small isolated groups: Wisconsin, Massachusetts, and Rhode Island; this seems to support the idea that some terminology evolves from local/regional "slang" rather than an official dictionary.
+
+Experimenting with linked brushing (in other/brushing_experiment.html) shows that response to question 73 does not help predict the response to question 103. However, adding another question might give more insight. Specifically, if someone answered "drinking fountain" for question 73 and ”tennis shoes” for question 103, then for question 110 (What do you call the night before Halloween?), it is unlikely to call the night before Halloween "mischief night." This suggests that the responses to some groups of questions may be correlated with each other.
+
+```{r explore_1, echo = FALSE, message = FALSE, warning = FALSE, cache = TRUE, dev = "png", dpi = 150, fig.height = 6, fig.width = 6, fig.align='center', fig.pos="H", fig.cap="Distribution of responses in the contiguous states. (Q73) What is your general term for rubber-soled shoes worn in gym class? (Q103) What do you call the thing from which you might drink water in a school?"}
+
+state_df <- map_data("state")
+
+responses_1 <- getDataForQuestion(ling_data, "073", c(1,6))
+responses_2 <- getDataForQuestion(ling_data, "103", c(1,3,4))
+
+plot1 <- plotMap(responses_1, state_df, "(Q73)")
+plot2 <- plotMap(responses_2, state_df, "(Q103)")
+grid.arrange(plot1, plot2, nrow=2)
+```
+
+
+
+# Dimension reduction methods
+
+- This is where you discuss and show plots about the results of whatever
+dimension reduction techniques you tried - PCA, variants of PCA, t-SNE, NMF, random projections, etc.
+- What do you learn from your dimension reduction outputs
+- Discuss centering and scaling decisions
+
+# Clustering
+
+- This is where you discuss and show plots about the results of whatever clustering methods your tried - k-means, hierarchical clustering, NMF, etc.
+
+# Stability of findings to perturbation
+
+- What happens to your clusters when you perturb the data set?
+- What happens when you re-run the algorithm with different starting points?
+
+# Conclusion
+
+- Discuss the three realms of data science by answering the questions in the instructions pdf.
+- Come up with a reality check that would help you to verify your clustering. You do not necessarily have to perform this reality check, but you can if doable.
+- What are the main takeaways from your exploration/clustering/stability analysis?
+
+# Academic Integrity Statement
+
+- Please include your statement here. Do NOT include your name, to avoid putting it in the lab2_blind.pdf document.
