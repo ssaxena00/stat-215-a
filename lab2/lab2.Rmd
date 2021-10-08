@@ -16,6 +16,7 @@ library(forcats)
 library(lubridate)
 library(stringr)
 require(gridExtra)
+library(viridis)
 
 # require(devtools)
 #install.packages('textfeatures', version='0.2.0', repos='http://cran.us.r-project.org')
@@ -38,7 +39,7 @@ source("R/clean.R")
 
 # Introduction
 
-Dialects, or linguistic variations, may contain interesting insights about the social structure of a group. As seen in the survey of American dialects, collected by Vaux [1], dialects can vary according to geography, social class, sex, and age. Consequently, they can potentially reveal the underlying social identity and shared history of groups with similar dialects. The data is a result of surveying over 47 thousands individuals in all states and districts of the USA. The results in this report mostly support traditional ideas of American dialects; using dimensionality reduction and clustering methods, we can learn more about the relationship between dialect groups and regional geography.
+Dialects, or linguistic variations, may contain interesting insights about the social structure of a group. As seen in the survey of American dialects, collected by Bert Vaux, dialects can vary according to geography, social class, sex, and age. Consequently, they can potentially reveal the underlying social identity and shared history of groups with similar dialects. The data is a result of surveying over 47 thousands individuals in all states and districts of the USA. The results in this report mostly support traditional ideas of American dialects; using dimensionality reduction and clustering methods, we can learn more about the relationship between dialect groups and regional geography.
 
 
 # The Data
@@ -82,13 +83,13 @@ Consequently, LingData is used for the main analysis and LingLocation is primari
 
 Here we explore a few survey questions and their potential relationship to geography. Figure 1 shows the distribution of responses, across the USA, to 2 questions: 73 - What is your general term for rubber-soled shoes worn in gym class? and 103 - What do you call the thing from which you might drink water in a school?
 
-Figure Q73 shows the distribution of the two most common answers, which are "sneakers" and "tennis shoes" (removing other answer choices to make interpretability easier). Those who answered "sneakers" are concentrated in the Northeast region while "tennis shoes" is more commonly used throughout the rest of the country; some overlap does exist, which indicates people may have moved from one region to another or began adapting to  different terminology in their native regions. 
+Figure 1.Q73 shows the distribution of the two most common answers, which are "sneakers" and "tennis shoes" (removing other answer choices to make interpretability easier). Those who answered "sneakers" are concentrated in the Northeast region while "tennis shoes" is more commonly used throughout the rest of the country; some overlap does exist, which indicates people may have moved from one region to another or began adapting to  different terminology in their native regions. 
 
-Figure Q103 shows the distribution of the most common answers, which are "drinking fountain", "water fountain", and "bubbler." The term "water fountain" seems to be more commonly used in the West, with a high concentration in southern California. On the other hand, "drinking fountain" seems to be more favored in the Northeast and the Southeast. The Midwest seems to use both terms at similar frequencies. Interestingly, individuals who responded "bubbler" form small isolated groups: Wisconsin, Massachusetts, and Rhode Island; this seems to support the idea that some terminology evolves from local/regional "slang" rather than an official dictionary.
+Figure 1.Q103 shows the distribution of the most common answers, which are "drinking fountain", "water fountain", and "bubbler." The term "water fountain" seems to be more commonly used in the West, with a high concentration in southern California. On the other hand, "drinking fountain" seems to be more favored in the Northeast and the Southeast. The Midwest seems to use both terms at similar frequencies. Interestingly, individuals who responded "bubbler" form small isolated groups: Wisconsin, Massachusetts, and Rhode Island; this seems to support the idea that some terminology evolves from local/regional "slang" rather than an official dictionary.
 
 Experimenting with linked brushing (in other/brushing_experiment.html) shows that response to question 73 does not help predict the response to question 103. However, adding another question might give more insight. Specifically, if someone answered "drinking fountain" for question 73 and ”tennis shoes” for question 103, then for question 110 (What do you call the night before Halloween?), it is unlikely to call the night before Halloween "mischief night." This suggests that the responses to some groups of questions may be correlated with each other.
 
-```{r explore_1, echo = FALSE, message = FALSE, warning = FALSE, cache = TRUE, dev = "png", dpi = 150, fig.height = 6, fig.width = 6, fig.align='center', fig.pos="H", fig.cap="Distribution of responses in the contiguous states. (Q73) What is your general term for rubber-soled shoes worn in gym class? (Q103) What do you call the thing from which you might drink water in a school?"}
+```{r two_questions, echo = FALSE, message = FALSE, warning = FALSE, cache = TRUE, dev = "png", dpi = 150, fig.height = 6, fig.width = 6, fig.align='center', fig.pos="H", fig.cap="Distribution of responses in the contiguous states. (Q73) What is your general term for rubber-soled shoes worn in gym class? (Q103) What do you call the thing from which you might drink water in a school?"}
 
 state_df <- map_data("state")
 
@@ -101,13 +102,53 @@ grid.arrange(plot1, plot2, nrow=2)
 ```
 
 
-
 # Dimension reduction methods
 
-- This is where you discuss and show plots about the results of whatever
-dimension reduction techniques you tried - PCA, variants of PCA, t-SNE, NMF, random projections, etc.
-- What do you learn from your dimension reduction outputs
-- Discuss centering and scaling decisions
+Through the dimension reduction method of PCA, Figure 2 shows the projection of the binary representation
+of LingData onto the first two principal components. Here, three loose clusters according to longitude  can be seen, which may be relating the linguistics results to regional geography. Furthermore, Figure 3 shows that the first ten principal components explain only a modest proportion (about 20%) of the total variability, which indicates that the underlying cause for linguistic variations is not simple; in other words, it is not accurate to portray the data's complexity in just a few features. 
+
+```{r pca-calc}
+col_names <- colnames(ling_data)[5:71]
+x <- lapply(col_names, function(x) convertToBinary(x, ling_data))
+X <- do.call(cbind, x) %>%
+  mutate(long = ling_data$long, lat = ling_data$lat)
+
+Y <- rotateData(X)
+```
+
+```{r pca-plot, echo = FALSE, message = FALSE, warning = FALSE, cache = TRUE, dev = "png", dpi = 100, fig.height = 4, fig.width = 7, pos = "H", fig.cap="Projection of LingData onto the first two principal components."}
+Y %>%
+  sample_frac(.1) %>%
+  ggplot() + 
+    geom_point(aes(x = X1, y = X2, color = long), alpha = .5) +
+    labs(x = "PC1", y = "PC2", color = "Longitude") +
+    scale_color_viridis() +
+    theme_classic()
+```
+
+
+```{r pca-variability, echo = FALSE, message = FALSE, warning = FALSE, cache = TRUE, fig.height = 3, fig.width = 5, fig.pos="H", dev = "png", dpi = 200, fig.cap="Amount of variability explained by the first 10 principal components."}
+
+pca <- X %>%
+  select(-long, -lat) %>%
+  scale(center = FALSE, scale = FALSE) %>%
+  cov() %>%
+  eigen()
+
+total_var <- sum(pca$values)
+
+ggplot() + 
+  # plot cumulative sum of eigenvalues
+  geom_point(aes(x = 1:10, y = cumsum(pca$values[1:10]) / total_var), size = 2, color = "blue") + 
+  geom_line(aes(x = 1:10, y = cumsum(pca$values[1:10]) / total_var)) +
+  labs(x = "Principal component", y = "Cumulative proportion of\n variability explained") + 
+  scale_x_continuous(breaks = 1:10) + 
+  theme_classic()
+```
+
+The data was not centered as covariance matrix calculation in PCA already "centers" the data. The PCA was tried with and without sacling. With scaling, the first 10 components cumulatively accounted for about 12% of the variance. However, without scaling, the first 10 components cumulatively accounted for more than 20% of the variance. Clearly, PCA done without scaling has less representative dimensions; this could be due to the fact that the observations are already on the same "scale" as they are binary. With naturally unstandardized data (if the data was not binary encoded), then PCA will project the first component in the direction of the questions with higher covariance, which does not make sense. Given that answer choices are just mapped to numbers, this does not provide a meaningful interpretation.
+
+It is not a good idea to do PCA on the original dataset because the values are inherently insignificant. Answer choices are mapped to a particular number, so for different questions, many individuals will have the "same" answer number; this does not really make sense. By encoding in binary, every answer choice is treated as its own dimension. From there, the dimensionality reduction takes place. 
 
 # Clustering
 

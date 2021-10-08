@@ -43,16 +43,6 @@ cleanLingLocation <- function(ling_location_df){
 
 # utility functions below
 
-normalize <- function(x) {
-  return((x - min(x)) / (max(x) - min(x))) 
-}
-
-# round to nearest given base
-roundToNearestX <- function(x, base){
-  return(base * round(x / base))
-}
-
-# clean theme
 blank_theme <- theme_bw() +
   theme(plot.background = element_blank(),
         panel.grid.major = element_blank(),
@@ -149,7 +139,7 @@ rotateData <- function(X){
     # remove the location columns
     select(-long, -lat) %>%
     # scale data
-    scale(center = TRUE, scale = TRUE) %>%
+    scale(center = FALSE, scale = FALSE) %>%
     # compute the covariance
     cov() %>%
     # find the eigenvalues and eigenvectors
@@ -160,7 +150,7 @@ rotateData <- function(X){
     # remove the location columns
     select(-long, -lat) %>%
     # scale the data
-    scale(center = TRUE, scale = TRUE) %>%
+    scale(center = FALSE, scale = FALSE) %>%
     # project onto the PC space
     as.matrix() %*% pca$vectors %>%
     # convert from matrix to dataframe
