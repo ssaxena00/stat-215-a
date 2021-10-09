@@ -17,6 +17,8 @@ library(lubridate)
 library(stringr)
 require(gridExtra)
 library(viridis)
+library(RcppML)
+library(Rcpp)
 
 # require(devtools)
 #install.packages('textfeatures', version='0.2.0', repos='http://cran.us.r-project.org')
@@ -104,8 +106,7 @@ grid.arrange(plot1, plot2, nrow=2)
 
 # Dimension reduction methods
 
-Through the dimension reduction method of PCA, Figure 2 shows the projection of the binary representation
-of LingData onto the first two principal components. Here, three loose clusters according to longitude  can be seen, which may be relating the linguistics results to regional geography. Furthermore, Figure 3 shows that the first ten principal components explain only a modest proportion (about 20%) of the total variability, which indicates that the underlying cause for linguistic variations is not simple; in other words, it is not accurate to portray the data's complexity in just a few features. 
+Through the dimension reduction method of PCA, Figure 2 shows the projection of the binary representation of LingData onto the first two principal components. Here, three loose clusters according to longitude can be seen, which may be relating the linguistics results to regional geography. Although these clusters are colored only based on longitude, this provides a starting point for how to cluster the data (see more in Clustering). Furthermore, Figure 3 shows that the first ten principal components explain only a modest proportion (about 20%) of the total variability, which indicates that the underlying cause for linguistic variations is not simple; in other words, it is not accurate to portray the data's complexity in just a few features. 
 
 ```{r pca-calc}
 col_names <- colnames(ling_data)[5:71]
@@ -146,25 +147,60 @@ ggplot() +
   theme_classic()
 ```
 
-The data was not centered as covariance matrix calculation in PCA already "centers" the data. The PCA was tried with and without sacling. With scaling, the first 10 components cumulatively accounted for about 12% of the variance. However, without scaling, the first 10 components cumulatively accounted for more than 20% of the variance. Clearly, PCA done without scaling has less representative dimensions; this could be due to the fact that the observations are already on the same "scale" as they are binary. With naturally unstandardized data (if the data was not binary encoded), then PCA will project the first component in the direction of the questions with higher covariance, which does not make sense. Given that answer choices are just mapped to numbers, this does not provide a meaningful interpretation.
+The data was centered as covariance matrix calculation in PCA already "centers" the data. The PCA was tried with and without sacling. With scaling, the first 10 components cumulatively accounted for about 12% of the variance. However, without scaling, the first 10 components cumulatively accounted for more than 20% of the variance. Clearly, PCA done without scaling has less representative dimensions; this could be due to the fact that the observations are already on the same "scale" as they are binary. With naturally unstandardized data (if the data was not binary encoded), then PCA will project the first component in the direction of the questions with higher covariance, which does not make sense. Given that answer choices are just mapped to numbers, this does not provide a meaningful interpretation.
 
 It is not a good idea to do PCA on the original dataset because the values are inherently insignificant. Answer choices are mapped to a particular number, so for different questions, many individuals will have the "same" answer number; this does not really make sense. By encoding in binary, every answer choice is treated as its own dimension. From there, the dimensionality reduction takes place. 
 
 # Clustering
 
-- This is where you discuss and show plots about the results of whatever clustering methods your tried - k-means, hierarchical clustering, NMF, etc.
+K-means and NMF clustering approaches are performed on the data.
 
-# Stability of findings to perturbation
+## K-Means 
 
-- What happens to your clusters when you perturb the data set?
-- What happens when you re-run the algorithm with different starting points?
+To further study the potential relationship between dialect groups and geography, k-means clustering on the first two principal components was performed. The number of clusters, k, was set to 3, because it gave the highest average silhouette value. Fig ___ shows the distribution of the cluster members on the map of the US. Here three general geographical clusters are present: 1) the Northeast, 2) the Southeast, and 3) a super region including the Midwest, the Southwest, and the West. The geographical clusters are not divided extremely well and definitely exist on a continuum. There is a fair amount of overlap between clusters on border regions; there are also many outliers, such as the members of the "Northeast cluster" present in Florida. 
 
-# Conclusion
+```{r kmeans, echo = FALSE, message = FALSE, warning = FALSE, cache = TRUE, dev = "png", dpi = 100, fig.height = 4, fig.width = 7, fig.pos="H", fig.cap="Distribution of clusters, from the k-means clustering with $k$ = 3 used on the first 2 principal components. The clusters correspond to three geographical regions."}
 
-- Discuss the three realms of data science by answering the questions in the instructions pdf.
-- Come up with a reality check that would help you to verify your clustering. You do not necessarily have to perform this reality check, but you can if doable.
-- What are the main takeaways from your exploration/clustering/stability analysis?
+kmeans <- Y[, 1:2] %>%
+  kmeans(centers = 3)
 
-# Academic Integrity Statement
+plotKmeans(kmeans, Y, alpha = .5, sample_rate = 1)
+```
 
-- Please include your statement here. Do NOT include your name, to avoid putting it in the lab2_blind.pdf document.
+## NMF Clustering
+
+Using rank-2 matrix factorization, recursive bipartitioning split the data into k = 3 clusters. Min_samples, one parameter of the algorithm, was chosen to be 8000 to force about 3 clusters; with this, a fair comparison can be made with the clusters from the k-means. Fig ___ shows the distribution of the cluster members on the map of the US. The three main clusters are similar to the ones from k-means: 1) the Northeast, which here also includes the southeast, 2) the southern Midwest, and 3) a super region including the northern Midwest and the West. The geographical clusters are not divided extremely well and definitely exist on a continuum, more so than in k-means. There is more overlap between clusters on border regions and many outliers, such as the members of the "Northeast cluster" present in California 
+
+```{r rcpp-nmf-clustering, echo = FALSE, message = FALSE, warning = FALSE, cache = TRUE, dev = "png", dpi = 100, fig.height = 4, fig.width = 7, fig.pos="H", fig.cap="Distribution of clusters, from the nmf clustering with $k$ = 3. The clusters correspond to three geographical regions."}
+X_bin <- X %>% select(-long, -lat)
+#model <- RcppML::nmf(X_bin, k=3)
+clusters <- dclust(t(X_bin), min_samples = 8000, min_dist = 0.001, seed = 10)
+
+groups <- list()
+for (i in c(1:3)) {
+  for (j in clusters[[i]]$samples) {
+    groups[j] <- i
+  }
+}
+
+data <- X[-1, (1:470)] %>% mutate(cluster = groups) 
+data <- as.data.frame(lapply(data, unlist))
+  
+ggplot(data) + 
+  geom_point(aes(x = long, y = lat, color = as.factor(cluster)), alpha = 0.5) + 
+  geom_polygon(data = state_df, aes(x = long, y = lat, group = group), color = "black", fill = NA) + 
+  labs(color = "Cluster") + 
+  theme_void()
+```
+
+## Clustering Analysis
+
+As shown in Q103, individuals who answered "water fountain" lie in the northeast region but also flow into the southeast. This is a pattern that is represented in the NMF clustering result (green color). Also, the answer "sneakers" for Q73 support the geographic split shown in the k-means clusters; specifically the blue cluster matches the region who answered "sneakers". These questions serve as examples, but also clear evidence, of how these geographic linguistic clusters are forming. 
+
+The mathematical model behind the dimension reduction strategy (PCA) seem to make sense for these clusters. As seen in Figure 2, there are 3 loose clusters between the first two components based on longitude (east-to-west) which covers a lot of the variation in the clusters generated from the clustering algorithms. 
+
+As mentioned earlier, it is important to note that the total variability in the data cannot be explained by a few of principal components. This suggests that the underlying cause for linguistics dataset is very complex and/or the relationships between the variables may not be linear as assumed by PCA. In the latter case, it may be worthwhile to try transforming the variables so that they have more linear relationships or using a nonlinear dimension reduction method.
+
+The NMF approach to clustering has a theoretical advantage in that is using the Cosine distance rather than Euclidean distance as a metric. This implies that it should handle outliers and sparsity better than k-means, which uses Euclidean distance. However, both models have a significant amount of overlap in their clusters. 
+
+
