@@ -1,0 +1,13 @@
+Peer Review Guide (Optional)
+- For every question you review, please write a short comment explaining your decision and indicate a score out of 10.
+A few things to consider while you review the reports:
+
+1.1.2 Asses the quality of visualization, and the choice of questions.
+1.1.3 Asses the choice of scaling/centering, evaluate the reasoning for not using PCA on lingData.
+1.1.4 Was PCA and MNF used properly? Asses the quality of clustering, and understanding of the difference between methods
+1.1.5 Asses the statistical validity of the perturbation method, in particular is the size of perturbation appropriate?
+1.1.6 Are the conclusions of the clustering analysis clearly communicated? Do you agree ?
+
+General comments can include a general assessment of how well crafted the report is
+
+Please fill out the `report.csv` file within each student folder, and push the changes by 10.15 at midnight.
