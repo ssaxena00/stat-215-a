@@ -1,253 +1,272 @@
 ---
 title: "Lab 2 - Linguistics Data, Stat 215A, Fall 2021"
-author: "Anonymous"
-date: "7th October, 2021"
+author: ""
+date: "`r format(Sys.time(), '%B %d, %Y')`"
 output:
   pdf_document:
     number_sections: yes
   html_document:
     df_print: paged
 header-includes: \usepackage{float}
-urlcolor: blue
 ---
 
-# Introduction
+```{r setup, echo = FALSE, message=FALSE, warning=FALSE}
 
-```{r setup, echo = FALSE, message = FALSE, warning = FALSE}
-# load in useful packages
+#NOTE: IT TAKES ABOUT 6.5 MINUTES TO COMPILE THE PDF BECAUSE OF MY STA-NMF
+#CODE, SO PATIENCE IS REQUIRED, SORRY
+
 library(tidyverse)
-library(maps)
 library(ggplot2)
-library(dplyr)
-library(mltools)
-library(data.table)
+library(maps)
+library(zipcodeR)
+library(cluster)
 library(RcppML)
-library(plotly)
-library(knitr)
+library(gridExtra)
+library(grid)
 
-# set default knitr chunks
 knitr::opts_chunk$set(
   echo = FALSE,  # don't print the code chunk
   warning = FALSE,  # don't print warnings
   message = FALSE,  # don't print messages
   fig.width = 6,  # set default width of figures
   fig.height = 4,  # set default height of figures
-  fig.align = "center",  # always align figure in center  
+  fig.align = "center",  # always align figure in center
+  fig.pos = "H",  # always plot figure at the exact location of the code chunk
   cache = FALSE)  # don't cache results
 
-# load in the loadData() functions
-#source("R/load.R")
-# load in the cleanData() functions
-source("R/demo.R")
+source(paste0(getwd(), '/R/load.R'))
+source(paste0(getwd(), '/R/clean.R'))
+source(paste0(getwd(), '/R/helper_clean.R'))
+source(paste0(getwd(), '/R/plot.R'))
+source(paste0(getwd(), '/R/dimreduction_cluster.R'))
+set.seed(12345)
 ```
 
-```{r}
-ling_data = read.table('data/lingData.txt', header = T)
-ling_location = read.table('data/lingLocation.txt', header = T)
-# question_data contains three objects: quest.mat, quest.use, all.ans
-load("data/question_data.RData")
+```{r load-data, echo = FALSE, message = FALSE, warning = FALSE, cache = TRUE}
+# loading the data
+ling_data <- loadLingData(paste0(getwd(), '/data/'))
+ling_qs_ans <- loadLingQuestions(paste0(getwd(), '/data/'))
+states_locs <- map_data('state')
 
-# clean ling_data
-ling_data = clean_ling_data(ling_data)
-
-state_df = map_data("state")
-my_theme = theme_classic() + theme(axis.line.y = element_blank(), legend.position="bottom")
+#cleaning and recoding the relevant data
+lingdat_clean <- cleanLingDat(ling_data, states_locs)
+lingdat_onehot <- recodeLingDat(lingdat_clean, ling_qs_ans)
+lingdat_loc <- cleanLingLoc_v2(lingdat_onehot)
 ```
 
+# Introduction
 
-In this report we analyse linguistic data against the backdrop of the work of Nerbonne and Kretzschmar [2], who build on their own previous work [1]. Given my own inexperience with computational linguistics, even compared to my experience with the Redwood Forest data, I primarily defer to the subject matter experts when it comes to explaining relevant terminology and clarifying the current state of the domain. To suitably place our analysis in the domain context, we first establish definitions: we use Nerbonne and Kretzschmar's definition of dialectology as the study of dialects, while dialectometry is the measurement of dialect differences, i.e. linguistic differences whose distribution is determined primarily by geography. Notably, while geography is the primary determinant, dialectology studies all kinds of ways languages can vary, be it on the basis of age, gender, social factors, or geographical causes. Dialectology is a well studied and represented subset of variationist linguistics, which is concerned with studying how linguistic variations are correlated in terms of class, age, sex, occupation, etc. 
+To many from the United States, the existence of different dialects of English comes as no surprise. However, this linguistic variation raises many questions. Are there any non-linguistic factors (cultural, social, etc.) that are correlated with this variation? To what extent is geographic location an indicator of which label one uses for a particular concept? More generally, without prior knowledge of geographic linguistic variation in the United States, can this variation be detected solely from data-driven methods?
 
-Notably, the need for large-scale computational tools in the context of dialectology stems from the fact that language variation and the corresponding data are complex both geographically and linguistically, resisting naive characterisation attempts. Advancements in computation and techniques developed for dialectology have also benefitted the broader field of linguistic variation, thereby providing insights into historical, social and geographical factors of language use in society. For example Gilliéron showed the correspondence between certain linguistic and cultural divisions in France. Thus by inverting the relationship between culture and language, we may attempt to infer about the connections and interactions between people who speak related varieties of the same language.
+In this report, I will explore these questions to varying degrees using the results from a Dialect Survey conducted by linguist Bert Vaux. More specifically, I will first describe Vaux's dataset in more detail, explain my methods for cleaning the data for analysis, and provide initial exploratory plots displaying just how regional certain conceptual labels can be. Then, after experimenting with dimension reduction methods to render the dataset more manageable, I will use unsupervised learning methods, like clustering, to see if the regional variations observed for specific concepts extend to more general lexical habits. Finally, I will analyze the stability of my clustering results, indicating the validity of my conclusions.
 
-In dialectology, there has been an ongoing debate about the existence of so-called dialect areas vs. a dialect continuum. As per Nerbonne and Kretzchmar, a dialect area is an area distinguished from its neighbors by its relatively more limited range of linguistic variation. While there was has been some success in developing consensus about what these areas are, there has been little success in characterising them. In contrast, some linguists suggest the aforementioned dialect continuum, where rather than having clearly demarcated discrete dialect areas, there is a gradual transition from one to the other. Notably this theory has gained prominence since dialectologists have been unable to irrevocably prove the existence of dialect areas and by extension characterise them. 
-
-Most non-computational studies have focused on a small number of features, meaning they were ineffective at characterising aggregate levels. Originally there was resistance to aggregate characterisation since there were almost always some contra-indicating tendencies in large scale datasets. While this is still true in general, Seguy [3][4] pioneered dialectometry and took substantial steps in solving this problem by simply counting the number of overlapping features between any two data collection sites. The two primary benefits of this approach were its simplicity and its ability to be applied to most pre-existing dialect atlas projects, whose data were mostly collected by questionnaires with a limited number of possible answers. In Seguy's method, sites that gave the same answer to a given question were counted one point more similar than sites that gave different answers. Crucially, conditioned on a pre-determined set of possible answers or categories, this technique was generalisable to pronunciation and other linguistic features. Thus through this technique of counting differences, Seguy was able to aggregate individual differences over a large amount of material. While Chambers and Trudgill [5] were initially skeptical of the utility of dialectometry, Goebl [6][7] was able to convince them by elaborating on dialectometrical ideas and systematically demonstrating their potential. Among his numerous contributions, he devised a measure which counted infrequent (and therefore unlikely) matches more heavily and used it to obtain more satisfying results than those using Seguy's naive measure.
-
-In my analysis, I will use computational tools and aggregation to analyse empirical evidence (or lack thereof) of dialect areas and the dialect continuum. Specifically, using clustering and dimensionality reduction techniques, I will examine geo-linguistic data on a binary and continuous scale, investigating whether clusters identified based on certain linguistic data can be used to make predictions about other linguistic peculiarities; in other words, can one's answer to a certain lexical question be used to predict their answer to another? More details are provided in the next section. I will also examine situations where this might not be possible ie. where the geo-linguistic data is not useful in demarcating groups of people. Given that it is not necessary for every facet of language to be different for dialect areas to exist, the aforementioned situation is not a failure of dialect areas, yet we should be aware of the possible limitations associated with using linguistic variation as a tool for demographic analysis.
-
-Furthermore, I am interested in the role urbanisation and the internet may have played in influencing linguistic variation at scale. In other words, I am interested in examining if cities in different parts of the country are similar linguistically to each other even if they differ geographically? On that note, what is the impact of urbanisation on linguistics for regions that are close geographically? While it may not be possible to fully answer this question based on the given data and the scope of this report, I will attempt to touch upon this question.
- 
 # The Data
 
-We begin by qualitatively and quantitatively describing the data. In this report we analyse data from a Dialect Survey conducted by Bert Vaux. To better understand the data, I attempted the survey, available [here](https://www.dialectsofenglish.com/). The questions and answers are available in the file `question_data.Rdata`. The questions of interest are those numbered 50-121 since they pertain to lexical differences which we will be focusing on, as compared to phonetic differences. To describe the two other datasets, I refer liberally to the provided lab instructions. `lingData` contains the answers to the aforementioned lexical questions for 47,471 respondents across the United States (US). The dataset contains the variables ID, CITY, STATE, ZIP, Q50 - Q121 (a few questions in this range are left out), lat and long. ID is a number identifying the respondent. CITY and STATE were self reported by respondents. The variables starting with Q are the responses to the corresponding question on the website. A value of 0 indicates no response. Nonzero values should correspond to the responses on the website, i.e. a value of 1 should match a response of (a). For the second data set, `lingLocation`, the same categorical responses were turned into binary responses, after which the data were binned into one degree latitude by one degree longitude squares. Within each of these bins, the binary response vectors were summed over individuals. The rows are not normalized, therefore each row can be interpreted as count data for a given square, bearing in mind that different squares can have different numbers of respondents. To concretely clarify the difference in datasets, suppose that persons (i) and (ii) take the questionnaire for two questions. The first question has four answer choices and the second question has three answer choices. If person (i) answered D and B and person (ii) answered A and B, then `lingData` would encode two vectors: (4; 2) and (1; 2). If they lived in the same longitude and latitude box, then it would be encoded in `lingLocation` as one vector: (1; 0; 0; 1; 0; 2; 0).
+The dataset used in this analysis was collected by Harvard linguist Bert Vaux as part of his Dialect Survey, conducted between 2000 and 2005. The survey asked respondents to provide their geographic location and answer a series of questions about how they pronounce certain sounds or which labels they use for different concepts. By mapping these responses to the user-provided locations, one can get a sense of the spatial-dependence of linguistic variation in the United States. 
 
-We are interested in using this data to reason about dialect areas and more broadly, linguistic similarities and differences between people living throughout the US. To this end, we will examine the distribution of their responses to multiple questions to determine the situations when clustering and/or dimensionality reduction can be combined with known linguistic data to predict lingusictic trends. Put more concretely, can we cluster people in such a manner that the clustering is consistent with both geographical location and linguistic variation based on the questionnaire? Furthermore, can we use these clusters to make any sort of prediction about the response of people to other questions pertaining to linguistic differences, especially lexical differences? If there are certain situations where it is possible to do so but not others, can we determine what the relevant geographical and linguistic factors are? Thus we are interested in assessing both the strengths and weaknesses of this approach. By doing so, we are better equipped to evaluate the dialect area vs. dailect conintuum debate, and understand the role of geography in linguistic variation. As discussed above, geography is the primary factor studied in dialectology, which in turn is an important subset of variationist linguistics. Deriving from Gilliéron's work, we hope that our analysis will also help one infer about the connections and interactions between people who speak related varieties of the same language.
+The dataset consists of 47431 respondents, each providing location information such as their city, state, and ZIP code of origin. With the help of former STAT 215A GSIs, we also have latitude and longitude information for each respondent, extracted from their provided ZIP codes. All in all, the original dataset contains each individual's responses to 67 questions, where each question aims to detect lexical, as opposed to phonetic, differences. Each question is represented by a single nominal categorical variable, where different positive integer values represent different answer choices. It is important to note that individuals' responses could be null, in that they may not have answered a question.
+
+With such information for a large number of individuals, one may be able to detect geographic patterns in language usage. For instance, maybe one label for a concept is frequently used among respondents whose reported location is the American Southeast, but almost never used among respondents from the Northeast. Beyond exploratory analyses, such data is also ripe for unsupervised clustering methods, where features isolated in the data might coincide with geographic variables. If this is the case, we would have evidence of a relationship between geography and lexical habits.
 
 ## Data Cleaning
 
-We first examine which questions we do not have the response data for. For the lexical differences questions (50-121), we are missing data for questions 108, 112, 113, 114, 116. Since we have no external source of data to rely on, we treat the responses to these questions as unknowable and do not consider them in our analysis. Every respondent has at least one question they did not respond to, and therefore we do not automatically disacrd observations with at least one missing response, otherwise there would be no data left to analyse. Furthermore, while `lingData` has 47471 observations, the ID column takes values from 1 to 50064, meaning approximately 2600 observations are missing. As before, we are unable to recover this information, but nontheless we should be aware of this in our analysis. In terms of location, we notice that approximately 1000 observations have missing lat and long values. On examing these observations more closely, we notice that the missing lat and long values come from 200 different zip codes, and the zip codes with the most missing values are not close to each other. Thus we conclude this error is not systematically impacting any particular zip code or state. Given the size of the data set, we simply exclude these obsevration from our analysis. Furthermore for ease of visualisation, we wish to focus on data only originating from the continental US. Thus we exclude the 200 or so observations that correspond to latitude and longitude from Alaska and Hawaii, and leave the geo-linguistic analysis of these states for future researchers.
+While relatively clean already, this is data from a survey that was publicly available online, so great caution must be taken to ensure the validity of the responses provided. First, we notice that there are several columns with missing values: 537 city entries, 3 state entries, and 1020 latitude and longitude entries. Among the entries with missing latitude and longitude values, the vast majority of provided ZIP codes were not valid USPS ZIP codes. This was primarily checked through the `zipcodeR` package and the USPS website. While many had city values provided, it was extremely difficult to attribute latitude and longitude information to the cities, since the names varied in case, spacing, and spelling. To be sure, state information was also provided for many of these entries, but this is not fine-scaled enough to reliably attribute latitude and longitude coordinates. So, all entries for which there were missing latitude and longitude data were dropped from the set.
+
+Next, we checked the 3 observations with missing state values. Among these, the cities were listed as 'nowhere', 'nottingham', and 'RananaISRAEL'. At the very least, none of the cities matched the provided ZIP codes, so these observations were deemed untrustworthy and dropped from the dataset. After this, we notice that quite a few state observations have their states listed as 'XX', which clearly should be treated as a missing value. However, all of these observations actually did have legitimate ZIP codes, so using the `zipcodeR` package, we filled in the correct states for each ZIP code. 
+
+Next, we decided to drop the provided 'city' column in the dataset, since, as mentioned above, the city names provided had inconsistent cases, inconsistent spacing, and sometimes included state information in the city name as well. We deemed having a clean city column not worth the effort to parse and clean it, and dropping observations based on inconsistent city names to be dangerous since this is survey data, so some degree of messiness is expected. We decided that ZIP codes and the latitude and longitude information would be more reliable indicators of location.
+
+At first, our strategy to verify the provided locations was to see if the provided ZIP codes matched with the provided states, since the city column was too difficult to parse and the latitude and longitude values seemed largely based on the ZIP codes. In this case, we would have two pieces of corroborating evidence to verify the respondents' locations. However, a large proportion of the provided ZIP codes are not valid USPS ZIP codes. In fact, using the `zipcodeR` package and checking quite a few ZIP codes on the USPS website, it seems like only about 10,000 observations have legitimate ZIP codes. We did not feel comfortable wiping out a whole 75% of the dataset just based on this one criteria. So, we opt to keep these observations, and trust the latitude and longitude information provided by the GSI's. While a possibly-shaky judgment call, we will attempt to justify it by performing a mini-reality check in the Exploratory Data Analysis section, ensuring the cleaned data still coincides with our prior knowledge about linguistic patterns in the United States.
+
+Finally, we exclude all observations from Hawaii and Alaska, both for visual purposes (much less hassle to create a map) and because only about 200 of the total responses come from these states. Additionally, we were much more interested in studying the relationship between linguistic variation and geography in the contiguous United States. 
+
+A few more checks were also made to ensure the data was as sound as possible. For instance, it seems that all of the answer choice entries are actual choices for those questions. However, unlike other datasets for which outliers could be removed through domain knowledge or comparing to some external reality, it is much more difficult to justify outlier removal here. Who's to say that someone in the Pacific Northwest doesn't say "y'all"? Removing outliers in this way runs the risk of introducing confirmation bias, and so we opted not to remove geographic outliers. 
+
+In the final dataset, we have 46,242 observations, with 72 columns: an ID column uniquely identifying each respondent, a state column representing their provided state information, a ZIP column representing their provided ZIP codes, latitude and longitude columns, and the responses for 67 questions, categorically encoded as described above. 
 
 ## Exploratory Data Analysis
 
-To begin, I wished to visualise the geographical distribution of highly symmetric (where all options were voted for almost equally) and highly asymmetric (almost all the votes were for a single option) responses. I looked through the percentages in `all.ans` in order to determine which questions had the properties I was looking for. I found that the responses to Question 52 "Would you say 'where are you at?' to mean 'where are you?'" to be highly symmetric, with all three responses being chosen between 30% and 36% of the time. Thus the responses are visualised in Figure 1. Note that the first response is trimmed for spatial reasons in the graph; it is "I can use "where are you at" in contexts such as asking someone how s/he is coming along on a project, but not in the general sense of "where are you physically located in the world at this moment". 
+In this analysis, we focus on the spatial distribution of responses to questions 50, 80, and 65. Figures \ref{fig:q50}, \ref{fig:q80}, and \ref{fig:q65} show the questions and the prevalence of certain answers. To make these figures, we first recoded the categorical variables in the cleaned dataset such that each question consisted of a binary vector, whose length was determined by how many answer choices that question had. So, if an individual responded a particular choice, instead of coding this as an integer, a 1 was filled into the column of this vector corresponding to this choice, and zeroes were filled in everywhere else. On this one-hot coded data, we rounded each latitude and longitude to the nearest degree, and grouped the observations by latitude-longitude pairings. For each group, we summed up the number of participants and added this as a column, and then summed up the binary vectors and normalized by the number of participants. So, for each latitude-longitude pairing, we have the proportion of individuals that responded a particular choice for each question. Additionally, we exclude any latitude-longitude pairings for which the number of respondents is less than two. Two individuals are not enough to represent a whole latitude-longitude box, and thus should not be plotted at this fine scale. However, we nonetheless keep these data in the original dataset, since these responses are part of coarser-scale geographic areas that can be considered in the upcoming analysis.
 
-```{r, fig.cap = "Geographical Distribution of Answers for Question 52"}
-plot_answers("52")
+Figure \ref{fig:q50} shows the relative prevalence of using "you guys" versus "y'all" to refer to a group of two or more people. Clearly, the use of "y'all" is much more prevalent in the Southeastern United States compared to the rest of the country. Conversely, the use of 'you guys' is not so prevalent in the Southeast as compared to the rest of the country. Here, we see an example of linguistic variation that falls along somewhat stark geographic lines.
+
+```{r q50, fig.width=11, fig.height=4, fig.cap = 'Proportion of respondents that anwered you guys (left) and yall (right) for each latitude-longitude box. Clearly, yall is more favored in the Southeast, whereas you guys is more favored in the rest of the country.'}
+usMapPlot(lingdat_loc, `50d`, `50i`, '50d', '50i', states_locs, ling_qs_ans)
 ```
 
-Here we realise that visualisation can be deceiving. Even though the first option was chosen the least number of times, it seems to dominate the map due to its usage around population centres. We should bear this in mind for future geographic visualisations.
+Figure \ref{fig:q80} shows a similar breakdown that isolates the Southeast from the rest of the country, but also isolates the Northeast. We clearly see that the use of 'sunshower' (to describe the phenomenon of rain falling while the sun shines) is more popular in New England as well as portions of the Midwest. While there are some points in the West for which this answer seems popular, we caution that, at this fine scale, these may be outliers that are not representative of the residents of the latitude-longitude code box. However, we also see that 'the devil is beating his wife' is more prevalent in the Southeast. Once again, we see that labels for this concept have different geographic distributions.
 
-On the other end, I now visualise the response to Question 63, "What do you call the drink made with milk and ice cream", which has over 96% of the respondents choosing "milshake/shake" as their answer, in Figure 2.
-```{r, fig.cap = "Geographical Distribution of Answers for Question 63"}
-plot_answers("63")
+```{r q80, fig.width=11, fig.height=4, fig.cap= 'The use of sunshower (left) and the devil is beating his wife (right) mark both the Northeast and Southeast, respectively.'}
+usMapPlot(lingdat_loc, `80a`, `80c`, '80a', '80c', states_locs, ling_qs_ans)
 ```
 
-A similar example is plotted in Figure 3 for Question 81, "When you are cold, and little points of skin begin to come on your arms and legs, you have -", with over 90% of the respondents responding "goose bumps"
+Finally, we analyze another dichotomy in responses: whether or not you call the Lampyridae variant prevalent in the United States a 'firefly' or a 'lightning bug'. In Figure \ref{fig:q65}, we see that the use of 'lightning bug' is much more prevalent in the Mid-Atlantic, Midwest, and the South. The term is less prevalent out West. However, the term 'firefly' is much more commonly-used in the Western United States, and much less commonly used where 'lightning bug' is prevalent. Once again, it seems like the spatial dropoff is quite abrupt in the usage of both of these terms.
 
-```{r, fig.cap = "Geographical Distribution of Answers for Question 81"}
-plot_answers("81")
+```{r q65, fig.width=11, fig.height=4, fig.cap = 'The use of lightning bug is much more common in the American Heartland and Mid-Atlantic and South, whereas firefly is more prevalent out West.'}
+usMapPlot(lingdat_loc, `65a`, `65b`, '65a', '65b', states_locs, ling_qs_ans)
 ```
 
-As we can see in Figures 2 and 3, it is not appropriate for us to arbitrarily choose 2 questions from those being considered and visualise their geographical distribution and correspondence to one another, because if we did so, we could visualise two questions whose responses seem to have very similar geographical clustering, but in reality this is simply the combination of a population map coupled with questions where almost everyone has the same answer. This is one of the primary criticisms of Chambers and Trudgill regarding early dialectometry. Thus we try to solve this by examining questions whose responses do not fit this category. While exploring the questions, I decided to choose Question 95 "What is 'the City'?" as one of the questions to examine. As someone who first came to the US for college, 'the City' has always meant San Francisco to me because I've been in the Bay Area this entire time, yet that isn't even one of the possible responses. Since 'the City' is a highly localised term, it can be an effective tool at finding dialect areas or examining different parts of the dialect continuum. The distribution of responses is available in Figure 4 below.
+The above figures clearly show that there is a relationship between lexicon and geography for a few specific concepts. Circling back to the data cleaning section, these figures provide a nice reality check for my cleaning decisions. It is well-known that "y'all" is commonly used in the South, and less so in the North. In the North, "you guys" or "you all" (not shown) is generally more used. Additionally, "the devil is beating his wife" is known to be common in the South. 
 
+Taking the results in these figures together, we see that responses to these questions are not necessarily independent, and may be related through geography. For instance, if someone remarks that 'the devil is beating his wife', then this person would likely also say 'y'all' frequently. Similarly, if someone says 'firefly', then that person might also say 'you guys' instead of 'y'all'. Of course, these relationships are not certain, but this exploratory analysis demonstrates that different geographical regions preferentially respond certain choices for certain questions in this dataset. Taking answers to all 67 questions as a representation of general lexical habits for each individual, it would be interesting to see if groupings of individuals by similar lexical habits reflect geographic groupings as well.
 
-```{r, fig.cap = "Geographical Distribution of Answers for Question 95"}
-plot_answers("95")
+# Dimension Reduction Methods
+
+After performing the exploratory analysis, we next attempt to implement unsupervised clustering methods to see if geographic regions or responses to individual questions can be captured. However, the dimensionality of our one-hot coded data is 468, quite high and prohibitive to efficient computation. So, we will first try some dimensionality reduction techniques and display any relevant results.
+
+However, we should first address why it was necessary to one-hot code our variables before performing dimension reduction techniques, rather than just treating every variable as categorical with nonnegative integer labels. Take, for example, PCA, which attempts to find linear combinations the variables in a dataset that maximize the variance captured. The results of PCA thus depend upon the variances of the individual variables. However, if the variables were categorically-encoded as opposed to one-hot encoded, the variances would have no meaning. The numeric labels for each answer choice are arbitrary, so an equally-valid recoding of the answer choices would yield different variance calculations. So, it is better to one-hot code the variables since a binary vector for a particular question's answer choice has a more interpretable variance.
+
+## PCA
+
+First, we performed PCA on the one-hot coded dataset to achieve dimensionality reduction. First, we decide on whether or not we should center or scale the data. Intuitively, we should center the data because all of our data points are nonnegative, and more specifically, occupy vertices of a 468-dimensional hypercube. In finding principal components, we wish to find projections of the data onto lines through the origin, but since the data is concentrated away from the origin, it seems like it would be difficult for the principal components to pick up the variation in the dataset. So, we decide to center the data. 
+
+Next, we decide to scale the data because, while each variable has similar units (between 0 and 1), it's possible that a question answer with many 0's and many 1's only has many 0's because those other people simply did not answer the question. So, the variation in this variable is simply measuring the variability in who answered the question in the first place, as opposed to measuring the more interesting variability in who answered this particular choice among other choices. So, in order to clamp down on the former source of variation, we also decide to scale the dataset. This decision also makes sense in the context of the screeplots, which are presented in the left and middle plots of Figure \ref{fig:pca-plots}.
+
+```{r pca-plots, fig.width=11.5, fig.height=4, fig.cap = 'Eigenvalue information for both the unscaled, uncentered data, and scaled and centered data'}
+set.seed(12345)
+
+onehot_nums <- lingdat_onehot %>% select(-c('ID', 'STATE', 'ZIP', 'lat', 'long'))
+
+pcas <- makePCAs(onehot_nums)
+plts <- makePCAEigvalPlots(pcas)
+
+pca_dim_reduced <- reduceDimensionPCA(pcas[[2]], 100, lingdat_onehot)
+region_coded <- addFourRegions(pca_dim_reduced, 37, -90)
+plt <- makePCAScorePlot(region_coded)
+grid.arrange(plts[[1]], plts[[2]], plt, ncol = 3)
 ```
 
-We note that even though a majority of people voted for "New York City" (47%), the map appears to be dominated by "Other" (42%) because people from around the country have a different 'the City' in mind depending on where they live. For comparison to Question 95, I chose Question 85, "What is the thing that women use to tie their hair?" since the geographical distribution looked similar enough to me to make it a suitable choice to experiment with, without falling into the pitfalls associated with Figures and 3. The distribution of the responses is available in Figure 5.
+In the unscaled and uncentered data, we see that the screeplot has an extremely abrupt dropoff in variance explained from the first few principal components onward, meaning that the first principal component is putting weight on some variables with extremely high variances, as opposed to the other principal components. Analyzing further, we see that choice 'a' for Question 63 has the highest loading along the first principal component, but 96% of answerers chose this choice. The variation captured by this variable does not reflect variation among the answer choices, since the answer was fairly uncontroversial. Looking at the screeplot for the scaled and centered data, this abrupt drop off has disappeared. Therefore, we opt to scale and center the data for PCA. As for choosing the number of principal components, there is a huge amount of variation in this dataset from a variety of factors that will be difficult to almost completely capture with less than 100 principal components. So, we are satisfied with selecting the first 100 principal components, which roughly describe 45% of the variation in the dataset. 
 
+The right-hand plot in Figure \ref{fig:pca-plots} shows that, despite the reduction in dimension, a projection along the first few principal components nonetheless captures some of the geographic variation we observed in the exploratory analysis. More specifically, when projecting onto the first two principal components and randomly sampling 1000 points from each region for plotting, we see that the points are somewhat clustered by geographic region (Northeast, Northwest, Southeast; Southwest excluded to declutter plot). For instance, points from the Northeast seem to have higher PC1 scores, but PC2 scores close to zero. In contrast, observations from the Southeast seem to have higher scores on PC2 but more negative scores on PC1. Finally, the observations from the Northwest seem to have negative scores on both principal components. Of course, these divisions are not abrupt in anyway and there is significant overlap. However, this is nonetheless an indication that our dimension-reduced data captures some of the geographic variation we have already observed. Note: to define these regions, used a latitude of 37 and a longitude of -90. So, the Southeast consists of observations whose latitudes are less than 37 and longitudes greater than -90, for instance.
 
-```{r, fig.cap = "Geographical Distribution of Answers for Question 85"}
-plot_answers("85")
+## NMF
+
+We also looked into NMF as a means to reduce the dimensionality of the dataset. We opt not to center the data, since NMF requires the input data to be nonnegative, and centering will introduce negative values. Scaling is a bit of a tougher decision. In PCA, it was necessary to scale since the resulting principal components, especially the first few, are so dependent on the variances of the individual variables. This in turn impacts which principal components are selected in the dimension-reduced dataset. However, in NMF, a set of principal patterns are recovered, but there is no obvious constraint that the principal patterns must explain the variation of the data in a similar fashion. The principal patterns are simply there to detect features such that linear combinations of these features minimize the difference between the original data under the Frobenius norm. So, in the absence of an obvious variance constraint like in PCA, we opt not to scale the data. 
+
+To choose the number of principal patterns, we will use the method of staNMF, in which we select the number of principal patterns corresponding to the least instability. The method was implemented as follows: for each $k$ satisfying $1 \leq k \leq 10$, perform NMF $n = 3$ times, yielding $3$ dictionary matrices. For each pair of dictionary matrices $D_{1}$ and $D_{2}$, calculate the dissimilarity score ($C$ is the cross-correlation matrix between $D_{1}$ and $D_{2}$):
+
+\[ diss(D_{1}, D_{2}) = \frac{1}{2K}(2K - \sum_{j}\text{max}_{i}C_{ij} - \sum_{i}\text{max}_{j}C_{ij}) \]
+
+Then, we average the dissimilarity scores for this $k$. We repeat for all other values of $k$, and plot the average dissimilarities for each $k$. The results are shown on the right-hand side of Figure \ref{fig:nmf_dim}.
+
+It seems like there is a minimum around 9 principal patterns. So, we opt to choose 9 principal patterns. It should be noted that, given additional computational resources, we would be able to try more values of $k$ and average more dissimilarity scores together to achieve more robust and convincing results. However, we will be satisfied with this plot. We can also make some plots to see what the data looks like in this reduced space, as we did with PCA. Figure \ref{fig:nmf_dim} shows some of these results.
+
+```{r nmf_dim, fig.width=11.5, fig.height=4, fig.cap='(left) staNMF results show 9 is a good choice of principal patterns (middle, right) Projections of the data onto the principal patterns may capture geographic variation, but it is slight'}
+set.seed(12345)
+means <- staNMF(t(onehot_nums), 10, 3)
+stanmf_plt <- makeStaNMFPlot(10, means)
+
+set.seed(12345)
+nmf_obj <- nmf(t(onehot_nums), 9, verbose = F)
+nmf_scores <- as_tibble(as.matrix(onehot_nums)%*%as.matrix(nmf_obj$w))
+plts <- makeNMFScorePlot(nmf_scores, lingdat_onehot)
+grid.arrange(stanmf_plt, plts[[1]], plts[[2]], ncol = 3)
 ```
 
-We notice a similar structure in the responses to Question 85 as in the case of 95, suggesting this is a suitable pair of questions to compare.
-
-# Dimensionality Reduction
- 
-We now perform dimensionality reduction, exxperimenting with PCA and then NMF. To perform PCA, we first one hot encode the responses to the questions. The justification for doing so is that in the case without one hot encoding, if person (i) answered A and B to questions 1 and 2, and person (ii) answered B and D to questions 1 and 2, then the encoded vectors are (1; 2) and (2: 4), respectively. Interpreted as vectors in feature space, this implies that person (ii) is somehow twice the value of person (i), which is undesirable since we are dealing with categorical data. Since the response data and the lat and long data are on different scales, it is necessary to scale the variables. Furthermore since the relevance of lat and long is more in the relationship to each other rather than the magnitude, we center those two variables only, while leaving the one hot encoded responses uncentered for interpretability purposes, and also to leverage the sparsity of the feature matrix. The results are visualised in Figures 6 and 7.
-
-```{r, cache = TRUE}
-ohe_ling_data = cbind(ohe_ling_data_fn(ling_data), 
-                      scale(select(ling_data, lat, long), scale = FALSE))
-ohe_ling_data_pca = prcomp(x = ohe_ling_data, center = F, scale = T)
-```
-
-
-```{r, fig.cap = "Groupings based on response to Question 95 using first 2 PCs"}
-ohe_ling_data_pca_scores = as.data.frame(ohe_ling_data_pca$x) %>%
-  mutate(Q095 = factor(ling_data$Q095))
-ggplot(ohe_ling_data_pca_scores) +
-  aes(x = PC1, y = PC2, color = Q095) +
-  geom_point() +
-  ggtitle("Groupings based on Response to Question 095 using first 2 PCs")
-```
-
-```{r, fig.cap = "Groupings based on response to Question 85 using first 2 PCs"}
-ohe_ling_data_pca_scores = as.data.frame(ohe_ling_data_pca$x) %>%
-  mutate(Q085 = factor(ling_data$Q085))
-ggplot(ohe_ling_data_pca_scores) +
-  aes(x = PC1, y = PC2, color = Q085) +
-  geom_point() +
-  ggtitle("Groupings based on Response to Question 085 using first 2 PCs")
-```
-
-As we see, the plot is effective at distinguishing the no responses from the responses. Furthermore, we see roughly three groups along the second PC in both Figures, suggesting that we may experiment with our clustering algorithms for 4-7 clusters.
-
-I also attempted to project the data long the third principal component. Figure 8 helps us visualise the different underlying structure in the data in a higher dimension.
-
-```{r, out.width = "90%", fig.cap = "Projecting data along first three prinicpal components. Colour coded based on responses to Question 95"}
-include_graphics("3DScatterplot.png")
-```
-
-```{r}
-#Plotly 3D doesn't render in R PDF, hence using png
-# This is the code used to generate plot in Figure 8
-#plot_ly(x = ohe_ling_data_pca_scores$PC1, y = ohe_ling_data_pca_scores$PC2, z = ohe_ling_data_pca_scores$PC3, type = "scatter3d", alpha = 0.2, size = 0.2, mode = "markers", color = factor(ling_data$Q095))
-```
-
-Unfortunately NMF did not prove to be an effective tool at dimensionality reduction. I experimented with two-dimensional projections for various values of k with none proving to be effective. Figure 9 is provided for reference.
-
-```{r fig.height = 3, fig.cap= "Attempted dimensionality reduction using NMF"}
-nmf_ling_data_3 = nmf(cbind(ohe_ling_data_fn(ling_data), select(ling_data, lat, long)), k = 5, tol = 5 * 10^-5, verbose = FALSE, nonneg = TRUE)
-nmf_3_df = data.frame(nmf_ling_data_3$w)
-ggplot(nmf_3_df, aes(x = X1, y = X2)) + geom_point(color = factor(ling_data$Q095))
-```
+To produce the middle and right plots in Figure \ref{fig:nmf_dim}, we randomly sampled 1000 observations from each region (regional bounds defined above) and plotted the observations from the Northwest/Northeast projected onto the plane spanned by Principal Pattern 1 and Principal Pattern 5 (left) and observations from the Southeast/Northeast projected onto the plane spanned by Principal Pattern 1 and Principal Pattern 3. We see that these different projections of the data somewhat separate out these geographic regions (although there is certainly overlap). So, we see that, like in PCA, this dimension-reduced data might still capture some of the geographic differences we observed in the exploratory analysis.
 
 # Clustering
 
-Having experimented with different dimensionality reduction algorithms, we now consider clustering algorithms. I decided to project the data along the first 100 PCs and then use k-means and NMF for clustering. I found that for k = 5, k-means tended to return clusters that were consistent with the geographical clusters. An example is provided in Figure 10. Similarly, setting k = 5 for NMF also resulted in suitable clustering. The results for NMF clustering are available in Figure 11.
+Once we reduced the dimension of the data, we were able to try out a few clustering methods to see if observations could be grouped into general linguistic patterns and whether these groups reflect geography. We first attempt to implement spectral clustering, whereby we perform k-means clustering on the PCA dimension-reduced dataset. Subsequently, we use NMF. Decisions on how many clusters to choose, as well as discussion and interpretation of results, are provided.
 
-```{r, fig.cap = "K-means clustering (k = 5) along first 100 PCs, plotted along first two PCs"}
-# cluster ling_data in PC spaces and plot along first two PCs
-k = 5 # set number of clusters
-kmeans_df = ohe_ling_data_pca_scores[, 1:100]
+## K-Means
 
-# k-means using first 100 PC components
-kmeans_ling <- kmeans(kmeans_df,
-                      centers = k)
+First, we performed k-means on the PCA dimension-reduced dataset. To choose the number of clusters $k$, we first attempted the silhouette method, whereby for a sequence of $k$ values, we perform k-means, calculate a pairwise distance matrix for each observation in the PCA dimension-reduced space, and use this information to calculate average silhouette scores. However, the size of the dataset was computationally prohibitive, especially when calculating pairwise distances between more than 40,000 observations. Subsampling was attempted to make these calculations more feasible, but the optimal silhouette scores were highly unstable to different subsamplings. So, this was abandoned.
 
-# plot along first two
-ggplot(ohe_ling_data_pca_scores) +
-  aes(x = PC1, y = PC2, color = as.factor(kmeans_ling$cluster)) +
-  geom_point() +
-  labs(title = "K-means clustering (k = 5)",
-       color = "Clusters")
+Instead, we opted to use a simple elbow method, whereby for $2 \leq k \leq 8$ clusters, we performed k-means and plotted the total within-cluster sum of squares as a function of $k$. An elbow in the plot should indicate an optimal choice of $k$. The elbow plot is provided in the left-hand plot of Figure \ref{fig:fullkmeans}. It seems that the elbow in this plot is around 6 clusters, so we will choose $k = 6$. The middle and right-hand plots in Figure \ref{fig:fullkmeans} show the clustering results projected onto two planes: the PC2-PC3 and PC1-PC3 planes.
+
+```{r fullkmeans, fig.width=11.5, fig.height=4, fig.cap = '(left) 6 clusters seems optimal using the elbow method (middle, right) clusters are distinct from one another in different projections on the principal components'}
+
+set.seed(12345)
+plt <- makeElbowPlot(pca_dim_reduced)
+
+set.seed(12345)
+quest_dat <- pca_dim_reduced %>% 
+    mutate(response50 = as.factor(lingdat_clean$Q050),
+                              response80 = as.factor(lingdat_clean$Q080))
+
+results <- addKmeansClustering(quest_dat, 6)
+sampling <- results %>% sample_n(5000)
+plts <- makeAllKmeansPlot(sampling)
+
+grid.arrange(plt, plts[[1]], plts[[2]], ncol = 3)
 ```
 
-```{r, fig.cap = "NMF clustering (k = 5) along first 100 PCs, plotted along first two PCs"}
-nmf_cluster = nmf(ohe_ling_data_pca_scores[, 1:100], k = 5, tol = 10^-5, 
-                      verbose = FALSE, nonneg = TRUE)
-clustered = apply(nmf_cluster$w, MARGIN = 1, FUN = which.max)
-ggplot(ohe_ling_data_pca_scores) +
-  aes(x = PC1, y = PC2, color = as.factor(clustered)) +
-  geom_point() +
-  labs(title = "NMF clustering (k = 5)",
-       color = "Clusters")
+In Figure \ref{fig:fullkmeans}, we see that k-means has effectively clustered all of the survey respondents into distinct clusters. Furthermore, it seems these clusters, while not located far from one another in each projection, do not significantly overlap. Indeed, in the PC2-PC3 plane, it seems there is significant overlap between cluster 5 and the other clusters, but projecting onto the PC1-PC3 plane shows that cluster 5 is actually fairly distinct from the rest. 
+
+We then tried to see if any of the lexical clusters corresponded to certain geographic regions or answers to certain questions. Informed by the exploratory analysis, where we saw significant geographic variation for a few questions between the Northeast and the Southeast, for instance, we attempted to link one of the clusters with either region. We also wanted to find a link between a cluster and a common region-dependent response to the questions from the exploratory analysis, primarily to bolster any claim that the lexical clusters correspond to certain geographies. Figure \ref{fig:regionkmeans} shows some results.
+
+```{r regionkmeans, fig.width = 11.5, fig.cap='Top: In the PC2-PC3 plane, Cluster 1 overlaps significantly with respondents from the Southeast, and respondents who say yall and the devil is beating his wife. Bottom: In the PC1-PC3 plane, Cluster 5 largely consists of individuals from the Northeast who say you guys and sunshower.'}
+
+makeRegionKmeansPlot(sampling)
 ```
 
-As is expecteted of k-means, the clusters are clearly distinguishable from each other to the point where the clusters are far more clearly demarcated than reality. In comparison, NMF shows clusters that are fairly consistent with the structure observed in Figures 6 and 7, and is worth considering using for future tasks.
+Looking at the top row of Figure \ref{fig:regionkmeans}, the group of respondents that the k-means algorithm has decided to cluster into Cluster 1 seem to be predominantly from the Southeast, say "y'all" to refer to a group of people, and say "the devil is beating his wife" when the sun is out while it is raining. Of course, there is not perfect overlap: Cluster 1 contains respondents that are neither from the Southeast nor say "y'all", for instance. However, it does seem like this lexical cluster has significant representation from the Southeast. 
 
-# Stability 
+Looking at the bottom row of Figure \ref{fig:regionkmeans}, we see that respondents in Cluster 5 are predominantly located in the Northeast and say 'sunshower' when it is raining while it is sunny outside. Many of those in Cluster 5 do say 'you guys', but 'you guys' is also popularly used outside of the Northeast as noted in the exploratory analysis section, so this is not the best marker of a Northeasterner. Nonetheless, it seems that the lexical grouping produced by this method has significant representation from the Northeast. More specifically, Cluster 5 has significant overlap with 'Sunshower', which Figure \ref{fig:q80} showed is popular in New England. Since the points in Cluster 5 seem to be a subset of the points in my defined Northeast region, Cluster 5 probably more specifically refers to New England.
 
-To test the stability of the results of my clustering algorithms, I bootstrapped the `ling_data`, and then performed the same steps behind PCA as mentioned above, after which I used NMF with k = 5 on the first 100 PCs as before. The clusters are visualised in Figure 12, and in my opinion are similar enough to suggest a reasonable stability and robustness to data perturbation.
+These clusters also make sense in the context of my dimension-reduction strategy. Figure \ref{fig:pca-plots} in the Dimension Reduction section showed that, rightfully so, PCA captured some of the variation that fell along geographic lines. So, it makes sense that a clustering algorithm like k-means on this PCA data would also detect this geographic variation. 
 
-```{r, fig.cap = "NMF clustering (k = 5) along first 100 PCs, plotted along first two PCs for bootstrapped data"}
-bootstrapped_data = ling_data %>% slice_sample(prop = 1, replace = TRUE) 
-ohe_ling_data = cbind(ohe_ling_data_fn(bootstrapped_data), 
-                      scale(select(bootstrapped_data, lat, long), scale = FALSE))
-ohe_ling_data_pca = prcomp(x = ohe_ling_data, center = F, scale = T)
-ohe_ling_data_pca_scores = as.data.frame(ohe_ling_data_pca$x)
-nmf_cluster = nmf(ohe_ling_data_pca_scores[, 1:100], k = 5, tol = 10^-5, 
-                      verbose = FALSE, nonneg = TRUE)
-clustered = apply(nmf_cluster$w, MARGIN = 1, FUN = which.max)
-ggplot(ohe_ling_data_pca_scores) +
-  aes(x = PC1, y = PC2, color = as.factor(clustered)) +
-  geom_point() +
-  labs(title = "NMF clustering (k = 5)",
-       color = "Clusters")
+There are quite a few advantages to this clustering method. First, it is very computationally feasible. Performing PCA on this dataset was not particularly expensive, and performing k-means on this dimension-reduced dataset was also quite fast. This method also has the advantage of using data projected onto axes representing large proportions of variation in the original data. This enables k-means to detect meaningful clusters that could succinctly reflect the variation observed in the original dataset. Disadvantages primarily have to do with PCA not being designed for binary data. While our results were somewhat interpretable, caution should be taken in applying this method to other binary settings. Also, the different starting points in the k-means algorithm can yield different clustering results, as well as different optimal $k$ from the elbow method. This will be discussed further in the stability analysis section.
+
+## NMF
+
+The last clustering method we attempted was NMF. Taking the NMF-reduced data from the prior section, we can cluster each observation by the principal pattern number the observation gives the most weight to. In our case, we chose 9 principal patterns via staNMF, so this will be our choice of $k$ for this clustering procedure. For ease of comparison with the last clustering method, we will present our NMF results with a similar suite of plots. Figure \ref{fig:NMF-all} shows each respondent projected into two principal pattern subspaces, colored by their cluster membership.
+
+```{r NMF-all, fig.width=11.5, fig.cap='Clusters assigned via NMF are separated from one another in different projections of the data onto the principal patterns'}
+
+set.seed(12345)
+nmf_cluster_qs <- addNMFClustering(nmf_scores, lingdat_clean)
+sampling <- nmf_cluster_qs %>% sample_n(5000)
+
+makeAllNMFPlot(sampling)
 ```
 
+In Figure \ref{fig:NMF-all}, we see that the clusters assigned via NMF are somewhat distinct from one another in 2D projections of the data onto various principal patterns. For instance, while cluster 4 or cluster 5 in the PP1-PP4 projection seems mostly distinct from the other clusters, there is nonetheless some overlap with the others. It is possible that other projections of the data will display more separation, but at least some degree of separation is visible. 
+As with k-means, we then attempted to match some of these clusters with geographic regions or common region-specific responses to questions. As before, the goal is to see if these lexical clusters correspond to certain geogrraphic regions. Figure \ref{fig:regionNMF} shows some of these results. 
+
+```{r regionNMF, fig.width = 11.5, fig.cap = 'Top row: In the PP1-PP4 plane, individuals in cluster 1 tend to be from the Northeast, say sunshower, and say you guys. Bottom row: In the PP2-PP6 plane, many individuals in cluster 6 are from the Southeast, say the devil is beating his wife, and say yall.'}
+
+makeRegionNMFPlot(sampling)
+```
+
+Like with k-means, we do not see a perfect correspondence of some cluster with a geographically defined region (at least with our self-defined regions). However, we do see certain clusters that overlap significantly with geographic regions and have individuals that share lexical quirks with a particular region. For instance, we see that in the top row, Cluster 1 contains individuals from the Northeast that like to say 'sunshower', and a significant number that like to say 'you guys'. So, this cluster seems to represent Northeastern speech patterns. Similarly, in the bottom row, we see that individuals in cluster 6 tend to say "y'all", many say the "the devil is beating his wife", and many are also from the Southeast. So, it seems like this cluster represents, at least somewhat, the Southern speech pattern. Of course, there are points in the cluster that are not geographically Southeastern by our definition, but playing around with definitions of geographic regions could yield a cleaner correspondence. 
+
+The mathematical model behind this dimension reduction strategy makes sense for these clusters. In NMF, we simply find some dictionary of features for which the data can be suitably approximated by some linear combination of these features. While there is no explicit variance maximizing criteria like in PCA, features of the data could nonetheless consist of quirky regional responses to questions, like saying "the devil is beating his wife". In this way, observations could be clustered by the degree to which this feature applies to them, allowing for clustering on the basis of lexical patterns. This in turn can reflect geography, since many lexical quirks are regional.
+
+NMF proved to be quite amenable to clustering. The dimension-reduction and clustering process was baked into one procedure, so it is efficient in this regard. Also, it does not seem like the results are as sensitive to scaling as PCA, averting a potentially bad judgment call. However, an issue might be that NMF is not necessarily guaranteed to pick up on features that explain much variation in the data. In this way, our dimension-reduction and thus clustering results could just be based on noise, and not anything actually important in the data.
+
+# Stability Check
+
+I find my most interesting clustering result was the coincidence between Cluster 1 in Figure \ref{fig:regionkmeans} and the number of people who say 'y'all'. In that example, this one cluster captures more than 60% of the respondents who say 'y'all', among the 5000 randomly selected individuals that were plotted. The next cluster captures 15% of respondents who say y'all. So, I will define this clustering result to be robust if, subject to perturbations, there still exists one cluster which dominates all other clusters in capturing respondents who say 'y'all'. Since Figure \ref{fig:regionkmeans} used a random sampling of the already-clustered data to show this result, a natural starting point for a stability check is to repeat this sampling many times and see if the distribution of respondents who say 'y'all' across the clusters is similar. The left-hand column of Figure \ref{fig:stability-check} shows these results. Next, since the k-means EM algorithm begins with random cluster assignments, we also perform k-means a number of times on the same dataset and display the distribution of participants who say "y'all" across the different clusters. This is shown in the middle column of Figure \ref{fig:stability-check}. Finally, we can further check for stability by performing k-means on random subsamples of the data a number of times and checking the distribution of "y'all" respondents across clusters. We opt for random 95% subsamples of the original data. These results are shown in the right-hand column of Figure \ref{fig:stability-check}.
+
+```{r stability-check, fig.width = 11.5, fig.cap = '(left) Cluster 1 dominates yall respondents over different random samples of already clustered data; (middle) For different k-means starting points, there is a dominant cluster that captures most yall respondents; (right) Dominant cluster comes and goes when performing k-means on different 95\\% subsamples of the original data.'}
+set.seed(123456)
+plt1 <- makeStabilityCheck1(results)
+plt2 <- makeStabilityCheck2(pca_dim_reduced, lingdat_clean)
+plt3 <- makeStabilityCheck3(pca_dim_reduced, lingdat_clean)
+grid.arrange(plt1, plt2, plt3, ncol = 3)
+```
+
+It seems our clustering observation is stable to random selections of 5000 points post-clustering, as shown in the left-hand plot of Figure \ref{fig:stability-check}. Looking at the middle plot, it seems our clustering observation is stable to 6 different starting points of the k-means EM algorithm. Note that multiple iterations of k-means do not necessarily preserve cluster labels. All that matters for our definition of stability is that there is one cluster that by far captures most of the "y'all" respondents. However, in the right-hand plot, we see that, for 6 different random 95% subsamples of the original data on which k-means was performed, there is sometimes a cluster that contains most of the "y'all" respondents, and sometimes not. So, we conclude our clustering observation is not stable to this perturbation. 
 
 # Conclusion
 
-We now contextualise our analysis through the lens of the three realms of data science: data, future data, and algorithms and analysis. In terms of using this data for future decision making, I believe it is reliable assuming that people were honest when filling the survey out, which is an assumption I am comfortable making. Notably while language inherently evolves over time, the analysis does not suggest an evolution so soon and so quick that we cannot rely on the data we currently have. An additional assumption being made is that there will not be massive immigration and emmigration trends such that the language changes drastically due to demographic changes. The clusters I found ie. the results of my algorithms and analysis have some utlitity in terms of aggregation and grouping, but could probably do with more advanced methodology before being used for decision making about dialect areas in the future. If I had more time, I would experiment more with the `ling_location` data, and also with Goebl's measure that weighted matches between infrequently used words more highly. Future analysis would also include examining data from Alaska and Hawaii. I also would have liked to be able to conduct a reality check by examining county level data and seeing how clustering at the county level would compare to the clusters I found using `ling_data` which is more granular data.
+This report fits well into the three realms of data science. We have data that was collected between 2000 and 2005 that is supposed to represent some reality (the linguistic landscape of the United States), we used unsupervised learning techniques and algorithms to cluster the data and see if any lexical groupings could be mapped to geography. Using these clusters and a correspondence between cluster and geographic region, we might be able to predict someone's home region from which cluster their lexical habits place them in. However, we do not think this data is useful for future decision-making purposes. This data was collected when the Internet was still fledgling, with not nearly as much communication as there is today. Since so much person-to-person contact occurs over the Internet these days, lexical variations along geographic lines might be blurred as people are constantly exposed to unfamiliar ways of speaking. Thus, we also think my clusters would not also be particularly useful for future data. Case-in-point: "y'all" was a distinctly Southern phenomenon in this dataset, but from our experience, it is currently prevalent throughout the United States. An external reality check to our k-means clustering results could be that we randomly sample American individuals and ask them the same 67 questions with the same choices. Then, we could project their responses onto my PCA dimension-reduced space, and assign their observations to clusters using the existing k-means object trained on this older data. However, our clusters should be taken with a grain of salt, since our attribution of a single lexical cluster to the Southeast was unstable to perturbations in the dataset. 
+
+Given more time, we would explore the instability issue presented in Figure \ref{fig:stability-check} with more robust clustering methods. We might also have explored more answers to different survey questions and their geographic dependence, as well as other notions of geographic location of the respondents. For instance, we considered which quadrant a respondent lived in as their geographic location, but a future analysis could try to use the home states of the respondents, or some other finer and more informative notion of location. We also might consider the phonetic questions in the dataset and see if this more complete assessment of dialect leads to more conclusive geographic clustering results. However, as Nerbonne and Kretzschmar note, dialects are notoriously hard to map to geography.
 
 # Academic Integrity Statement
 
-I hereby certify that all work in this class, for this assignment and all others is my own. 
-Whenever I consult my peers or collaborate with them, I will cite them. I will also cite all relevant resources used in my work. This is out of respect for myself, this class and its staff, the statistics department, UC Berkeley, and the academic enterprise as a whole.
+I attest that the work in this project is my own work, and that any other student or individual I consulted with have been acknowledged, and any source I used has also been acknowledged. Academic research honesty is a bedrock principle in academia because it drives us to give credit where credit is due, to acknowledge the work of our peers, and to drive the pursuit of knowledge forward.
 
 # Bibliography
 
-1. Nerbonne, J. and Kretzschmar, W. (2003). Introducing computational methods in dialectometry. Computers and the Humanities, 37(3):245–55. Special issue on computational methods in dialectometry, Nerbonne, J. and Kretzschmar, W.I.,Jr. (eds).
+Wu, S. et al., "Stability-driven nonnegative matrix factorization to interpret spatial gene expression and build local gene networks". PNAS, vol. 113, no. 16.
 
-2. John Nerbonne, William Kretzschmar, Jr, Progress in Dialectometry: Toward Explanation, Literary and Linguistic Computing, Volume 21, Issue 4, November 2006, Pages 387–397.
+Nerbonne, J. and Kretzschmar W., "Introducing Computational Techniques in Dialectometry". Computers and the Humanities, vol. 37.
 
-3. Se´guy, J. (1971). La relation entre la distance spatiale et la distance lexicale. Revue de Linguistique Romane, 35(138): 335–57.
+Nerbonne, J. and Kretzchmar W., "Progress in Dialectometry: Towards Explanation". Literary and Linguistic Computing, vol. 21.
 
-4. Se´guy, J. (1973). La dialectometrie dans l’Atlas linguistique de Gascogne. Revue de Linguistique Romane, 37(145): 1–24.
-
-5. Chambers, J. and P. Trudgill. (1998 [11980]). Dialectology. Cambridge: Cambridge University Press.
-
-6. Goebl, H. (1982). Dialektometrie: Prinzipien und
-Methoden des Einsatzes der Numerischen Taxonomie
-im Bereich der Dialektgeographie. Wien: O¨ sterreichische
-Akademie der Wissenschaften.
-
-7. Goebl, H. (1984). Dialektometrische Studien: Anhand
-italoromanischer, ra¨toromanischer und galloromanischer
-Sprachmaterialien aus AIS und ALF. Vol. 3 Tu¨bingen:
-Max Niemeyer.
-
+I also used Stackexchange for advice on how to accomplish certain coding tasks in R

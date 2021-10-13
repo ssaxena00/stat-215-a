@@ -1,5 +1,6 @@
 ---
 title: "Lab 2 - Linguistics Data, Stat 215A, Fall 2021"
+author: "Your Name"
 date: "`r format(Sys.time(), '%B %d, %Y')`"
 header-includes:
    - \usepackage{float}
@@ -13,558 +14,541 @@ output:
 library(tidyverse)
 library(knitr)
 library(maps)
-library(RcppML)
+library(broom)
 library(cluster)
+library(mclust)
+library(pheatmap)
 library(ggpubr)
+
+library(RcppML)
 
 # set default knitr chunks
 knitr::opts_chunk$set(
   echo = FALSE,  # don't print the code chunk
+  dev = 'png',
+  dpi = 300,
   warning = FALSE,  # don't print warnings
   message = FALSE,  # don't print messages
-  fig.width = 6,  # set default width of figures
-  fig.height = 4,  # set default height of figures
+  cache = TRUE, # cache the data
+  fig.width = 4,  # set default width of figures
+  fig.height = 2.5,  # set default height of figures
+  out.height = '75%',
+  out.width = '75%', 
   fig.align = "center",  # always align figure in center
-  fig.pos = "H",  # always plot figure at the exact location of the code chunk
-  cache = FALSE)  # don't cache results
+  fig.pos = "H") # always plot figure at the exact location of the code chunk
 
-# load in the loadData() functions
-source("R/load_data.R")
-# load in the cleanData() functions
-#source("R/clean.R")
 ```
-
 
 # Introduction
 
-The United States of America is a highly diverse and physically expansive country. San Francisco is more distant from New York City than Moscow is from Cairo. In addition, different regions of the country developed at much different times than others. Phoenix, AZ, is the fifth most populous city in the U.S. and it was founded only 140 years ago. At the same time, New York City was founded almost 400 years ago. Their respective cultures were formed by very different people at very different times.
+<!-- - Describe the problem of interest and put your analysis in the domain context. Read the introduction of the two Nerbonne and Kertzschmar papers for some help here. -->
+<!-- - What do you aim to learn from this data? -->
+<!-- - Outline what you will be doing in the rest of the report/analysis -->
 
-One of the more obvious differences between regions in the U.S. can be found in vocabulary. This follows from the fact that different languages have influence in various regions. In the American Southwest, Latin American Spanish is almost an official language. In the Northeast, Western European countries have more sway. It is only logical to try to quantify these differences. 
-
-Such is our goal in this report. We are provided with the results from an online, self-reported, vocabulary survey. Before taking the survey, the user enters information regarding their location. Then, for each of the 67 questions, the user selects one of the options presented to them. The questions are along the lines of "What do you call it when rain falls while the sun is shining?" Potential answer options include "the wolf is giving birth", "the devil is beating his wife", and "monkey's wedding". Ideally, a user's response to that question would give us insight into where they are from. 
-
-In order to make that connection, we will use unsupervised learning techniques. Specifically, we will use k-means and non-negative matrix factorization clustering. If we are able to group users into geographically significant clusters, then we will have proven that this type of data contains useful information. However, the data must first be subject to dimension reduction. It is unlikely that every single variable will be informative, so techniques like PCA will give us more tractable data that is ideally just as useful.
-
-
+Dialectometry as introduced by Nerbonne and Kretzschmar [1, 2] is the measurement of dialect differences whose distribution is determined primarily by geography. This geographical variation of language can be reflecting regional history, demography, economics, etc. However, collecting data for dialectometry research across geographical regions and the dialects can be a daunting task. The linguist Bert Vaux has there created a online questionnaire with 121 well-designed question to survey regional habits of pronunciation and wording in the United States, known as the Harvard Dialect Survey [3]. Such data can be very helpful for understanding dialectometry in the US but it comes with very large size. Therefore, compuational and statistical approach is needed to analyze such data. In this report, we will start by briefly describe the dataset, including data collection, data format and size. After data cleaning, we try to perform dimension reduction to the dataset and visually identify groups associated with geography. Then we explored two clustering methods trying to find clusters in the data. We studied the geographical distribution of the clusters and the which answers to the questions are the most characteristic features of the clusters. Finally, we evaluated the stability of the clustering results to different initializations and subsampling.
 
 # The Data
 
+<!-- - What is the data that you will be looking at? -->
+<!-- - Provide a brief overview of the data -->
+<!-- - How is this data relevant to the problem of interest? In other words, make the link between the data and the domain problem -->
 
-We will almost exclusively use the raw linguistic data frame. It contains information for 47,471 users across 73 variables. The first contains the unique ID of each user. The second, third, and fourth columns present the user-supplied city, state, and zip code, respectively. The last two represent calculated latitude and longitude values calculated from each user's location information. Each of the remaining columns corresponds to a question in the survey. The values in each column represent the answer choices that users provided when prompted with that question.
-
-Below is a description of the structure of this data set. Many columns similar to Q050 and Q121 have been omitted for the sake of visual presentation.
-```{r load_data}
-ling_data_raw <- loadLingData(path = "data/")
-ling_loc_data_raw <- loadLingLocationData(path = "data/")
-load("data/question_data.Rdata")
-
-dim(ling_data_raw)
-str(ling_data_raw[,c(1:5, 71:73)])
-```
-Another useful data set contains the actual questions. Here is a single row as an example of how the data is formatted:
-
-```{r quest_data}
-quest.mat[80,] #56, 80
-```
-Here is the corresponding entry in the data set containing the answer choices:
-```{r quest_data2}
-all.ans[[80]]
-```
-Now that we have a decent idea of what has been given to us, it is time to whip the data into shape for further analysis.
+This dataset is from a web-based survey in which each respondent will answer 121 questions about dialectal habits. Here we focus on questions reflecting lexical (relating to vocabulary) differences rather than phonetic (relating to pronunciation) differences, which is question 50 to 121, excluding 108, 112, 113, 114 and 116. For example, question 61 asks about the word used for "area of grass that occurs in the middle of some streets". And the answers include "boulevard", "midway", "island", etc. These answers presumably reflect the different pools of vocabulary that people use in different geographic regions. For each respondent, the city, state and zip code are also recorded. In the given dataset, there is also the latitude and longitude of each sample based on the zip code, which are fetched by previous students in this course. The dataset has in total 47,471 samples, namely respondents. Each sample has 67 categorical variables representing the answers to the questions, where zero represents no response, and the 5 location variables as mentioned above. 
 
 ## Data Cleaning
 
+<!-- - This dataset isn't as bad as the redwood data, but there are still -->
+<!-- some issues. You should discuss them here and describe your strategies -->
+<!-- for dealing with them. -->
+<!-- - Remember to record your preprocessing steps and to be transparent! -->
 
+We first examined if there is any missing values in the data and found that NA's only exist in the `ZIP`, `lat` and `long` columns. There are three samples with missing zip codes and 1020 samples with no coordinate information (which means the zip codes have no corresponding location information in the database). So we still retained all the samples for the following analysis and only exclude these samples when visualizing data points on the US map.
 
-### Removing bad values
+Next we calculated the response rate for each question and for each respondent (sample). We found that all questions have response rates over 90%. While there are 1040 respondent has no response to any of questions. We therefore excluded these samples from the analysis. Then we have 46,431 samples with each having 67 question variables for the following analysis. 
 
-How many NA values are in each of the five data sets? The table below tells us that only the linguistic data set contains NA entries. We output the summaries for each column and see that the latitude and longitude columns are the main issue. The remaining 3 NA values come from the "STATE" column, which is populated by responses from the users. It is highly likely that a few respondents concerned with privacy simply typed "NA" when prompted for their location.
-```{r explore}
-kable(data.frame(ling_data = sum(is.na(ling_data_raw)),
-                        loc_data = sum(is.na(ling_loc_data_raw)),
-                        quest_mat = sum(is.na(quest.mat)),
-                        quest_use = sum(is.na(quest.use)),
-                        answers = sum(is.na(all.ans))))
+```{r clean-data, echo = FALSE, message=FALSE, warning=FALSE}
+# load the data
+ling_data <- read.table('data/lingData.txt', header = T)
+ling_location <- read.table('data/lingLocation.txt', header = T)
+# question_data contains three objects: quest.mat, quest.use, all.ans
+load("data/question_data.RData")
 
+# where are the NA's
+missing_entries <- arrayInd(ind = which(is.na(ling_data)), .dim = c(47471, 73))
 
-summary(ling_data_raw[,72:73])
-```
+# Response rate of each question
+response_rate_quest <- colMeans(ling_data[, -c(1:4, 72:73)] != 0)
+response_rate_quest <- rowMeans(ling_data[, -c(1:4, 72:73)] != 0)
 
-Because the location of each response will be important to later analysis, we will simply remove the entries corresponding to NA values. There is no discernible difference between the removed entries and the ones that remain.
-
-In addition, a quick glance at a globe tells us that the contiguous United States roughly lies between -125 and -66 for longitude, and 24 to 50 for latitude. We will eliminate responses outside this range because we are interested in U.S. speech patterns. It is likely that people from outside the US took this test. We are not interested in their responses. 
-
-In total, we remove 1226 rows from the linguistic data: 1020 due to NA and 206 due to falling outside the boundaries. The dimension of the resulting data frame is
-
-```{r data_clean2}
-# Filter out rows with NA values
-ling_data <- ling_data_raw %>%
-      filter(!is.na(long)) %>%
-      filter(long < -66 & long > -125 & lat < 50 & lat > 24)
-
-# Present the dim of the final data set
-dim(ling_data)
-```
-
-We aren't using all of the questions, so we will use the data set containing question information to get the indices of the questions of interest.
-
-```{r get_quest_indices}
-# Select the questions of interest
-selected_questions <- quest.use$qnum
-ans_limits <- c()
-
-# It will be good to know how many options exist for each question.
-for (i in selected_questions) {
-  ans_limits <- c(ans_limits, nrow(all.ans[[i]]))
-}
-```
-
-### Binary encoding
-
-We will one-hot encode the linguistic data so that the responses are binary instead of categorical. The reasoning for this is provided in a later section. Below, we see the dimension of the new binary data frame. There are 468 columns, which is how many we are supposed to have according to the lab instructions. The number of rows remained constant. In addition, we can see the summary statistics for the first 4 columns. These are included so that the data cleaning can be verified.
-
-```{r encode_data}
-# We will gather just the questions to use as a reference.
-categ_response <- ling_data[,5:71]
-# Next, we create an empty df that will hold the binary responses.
-binary_response <- data.frame(matrix(0, nrow = nrow(ling_data), ncol = 0))
-
-# We iterate through one question at a time...
-for (i in 1:length(selected_questions)) {
-  
-  # Gather the categorical responses for the ith question
-  i_categ_question <- categ_response[,i]
-  # Create a data frame that will hold the binary responses for the ith question.
-  i_question_df <- data.frame(matrix(0, 
-                                     nrow = nrow(ling_data), 
-                                     ncol = ans_limits[i]))
-  
-  # For each answer choice, detect which users selected that answer choice.
-  for(j in 1:ans_limits[i]) {
-    i_question_df[which(i_categ_question == j) ,j] <- 1
-  }
-  
-  # Create descriptive column names
-  colnames(i_question_df) <- paste0("Q",
-                                    as.character(selected_questions[i]),
-                                    ".", 
-                                    as.character(1:ans_limits[i]))
-  
-  # Combine the data for the ith question with the rest of the data
-  binary_response <- cbind(binary_response, i_question_df)
-}
-rownames(binary_response) <- ling_data[,1]
-dim(binary_response)
-summary(binary_response[,1:4])
+ling_data <- ling_data[response_rate_quest != 0, ]
 ```
 
 ## Exploratory Data Analysis
 
-In this section, we will analyze three questions from the data set and see if we can see any geographical patterns. Furthermore, we will keep an eye out for any relationships between questions.
+<!-- - This is where you compare pairs of questions with discussions and plots. -->
 
-The first question is as follows:
-
-```{r hi, fig.width = 5,  fig.height = 3}
-quest.mat[50,2]
-plural_second_person <- ling_data %>% 
-  filter(Q050 %in% c(1, 2, 9))
-# extract the answers to question 50
-answers_q50 <- all.ans[['50']]
-
-# Make the column to join on.  They must be the same type.
-answers_q50$Q050 <- rownames(answers_q50)
-plural_second_person$Q050 <- as.character(plural_second_person$Q050)
-plural_second_person <- inner_join(plural_second_person, answers_q50, by = "Q050")
-
-
+```{r fig1, fig.cap = 'Geographical distribution of answers to question 80', fig.width = 8.5, fig.height = 4, echo = FALSE, message=FALSE, warning=FALSE}
 state_df <- map_data("state")
-# 80 90 95 121
 my_map_theme <- theme_void()
 
-# Plot!
-ggplot(plural_second_person) +
+sun_rain <- ling_data %>% 
+  filter(Q080 %in% c(1, 3, 8)) %>%
+  select(ID, Q080, long, lat)
+# extract the answers to question 80
+answers_q80 <- all.ans[['80']]
+
+# Make the column to join on. They must be the same type. 
+answers_q80$Q080 <- rownames(answers_q80)
+sun_rain$Q080 <- as.character(sun_rain$Q080)
+sun_rain <- inner_join(sun_rain, answers_q80, by = "Q080")
+
+# Plot
+sun_rain %>%
+  filter(long > -125) %>%
+  ggplot() +
   geom_point(aes(x = long, y = lat, color = ans), 
-             size = 2, alpha = 0.5, shape = 16) +
+             size = 1, alpha = 0.5) +
   geom_polygon(aes(x = long, y = lat, group = group),
                data = state_df, colour = "black", fill = NA) +
-  my_map_theme +
-  guides(colour = guide_legend(override.aes = list(size=3, alpha = 1, shape = 16))) +
-  labs(color = "Cluster", title = "Responses to Question 50") +
-  scale_colour_brewer(palette = "Dark2")
-
+  labs(color = 'Answer', title = quest.use['80', ]$quest) +
+  my_map_theme
 ```
-Many of us probably guessed where the word "ya'll" is most often used. However, the fact that it's almost the only choice selected by users form that region is surprising. Furthermore, we can see the word "yous" being utilized around Philadelphia, PA. This result was unexpected.
 
+Here we studied the question 80 and question 105. Question 80 asks about the word to describe the phenomenon of raining when sunny. In Fig. 1, we pick three major answers to this question and show their distribution on the US map. Here we found a clear geographic pattern. Respondents from the northeast tend to use the word "sunshower" to describe this phenomenon. Those from the southeast mostly use the expression "the devil is beating his wife". And those from other parts of the US do not have a specific word to use. In Fig. 2, we did the same visualization for question 105. It asks about the generic term used to describe sweetened carbonated beverage. A clear spatial pattern can also be observed. Respondent from the northeast and the west coast tend to use "soda", and those from the south tend to use "coke". And people from other regions uses "pop" mostly.
 
-Next, we analyze:
-```{r hi3, fig.width = 5,  fig.height = 3}
-quest.mat[85,2]
-hair_thing <- ling_data %>% 
-  filter(Q085 %in% c(1, 2, 4,5))
+```{r fig2, fig.cap = 'Geographical distribution of answers to question 105', fig.width = 6, fig.height = 3.5, out.height='65%', out.width='65%',  echo = FALSE, message=FALSE, warning=FALSE}
+
+carb_drink <- ling_data %>% 
+  filter(Q105 %in% c(1, 2, 3)) %>%
+  select(ID, Q105, long, lat)
 # extract the answers to question 50
-answers_Q085 <- all.ans[['85']]
-
+answers_q105 <- all.ans[['105']]
 
 # Make the column to join on.  They must be the same type.
-answers_Q085$Q085 <- rownames(answers_Q085)
-hair_thing$Q085 <- as.character(hair_thing$Q085)
-hair_thing <- inner_join(hair_thing, answers_Q085, by = "Q085")
+answers_q105$Q105 <- rownames(answers_q105)
+carb_drink$Q105 <- as.character(carb_drink$Q105)
+carb_drink <- inner_join(carb_drink, answers_q105, by = "Q105")
 
 # Plot!
-ggplot(hair_thing) +
+carb_drink %>%
+  filter(long > -125) %>%
+  ggplot() +
   geom_point(aes(x = long, y = lat, color = ans), 
-             size = 2, alpha = 0.3, shape = 16) +
+             size = 1, alpha = 0.5) +
   geom_polygon(aes(x = long, y = lat, group = group),
                data = state_df, colour = "black", fill = NA) +
-  my_map_theme +
-  guides(colour = guide_legend(override.aes = list(size=3, alpha = 1, shape = 16))) +
-  labs(color = "Cluster", title = "Responses to Question 85") +
-  scale_colour_brewer(palette = "Set1")
+  labs(color = 'Answer', title = quest.use['105', ]$quest) +
+  my_map_theme
+
 ```
-The results of this question would likely be hard to guess for anyone. The interesting pattern that we can observe in this visual is the concentration of users who say "elastic" in the Northeast. It would be difficult to determine exactly why that is, but it is likely that "elastic" is the term used in European nations like England.
 
-A similarity between the two data sets can be observed along the Gulf Coast. While most of the country lack definition when it comes to these questions, users from that area only use "ya'll" and "rubber band". If a large group of users seemed to only use those terms, we would have evidence suggesting that they are from the Gulf Coast region. 
+We further studied the association of this two questions. In line with what we observed on the map, we can observe in Fig. 3 that the most of the respondents who use "sunshower" to describe the rain when sunny also use "soda" to describe carbonated drink, which corresponds to the northeast region of the US. And the majority of those who use "the devil is beating his wife" to describe the rain when sunny also use "coke" as a generic word for carbonated drink. And this corresponds to the southeast region of the US. This exploration indicate that at least some question questions do reflect regional difference of the vocabulary. Hence, we further study this variation with more features using dimension reduction and clustering methods.
 
+```{r fig3, fig.cap = 'Relationship between question 80 and 105', fig.width = 6, fig.height = 4, out.height='60%', out.width='60%', echo = FALSE, message=FALSE, warning=FALSE}
+# Compare the two categorical variables
+table_80_105 <- sun_rain %>% 
+  inner_join(carb_drink, by = 'ID') %>%
+  mutate(Q080 = ans.x, Q105 = ans.y) %>%
+  group_by(Q080, Q105) %>%
+  summarise(count = n()) %>% 
+  group_by(Q080) %>%
+  mutate(Percent = count/sum(count)*100)
+
+table_80_105 %>% 
+  ggplot(aes(x = Q080, y = Percent, fill = Q105)) + 
+  geom_bar(stat="identity") +
+  theme_bw()
+
+```
 
 # Dimension reduction methods
 
-## Principal Component Analysis (PCA) 
+<!-- - This is where you discuss and show plots about the results of whatever -->
+<!-- dimension reduction techniques you tried - PCA, variants of PCA, t-SNE, NMF, random projections, etc. -->
+<!-- - What do you learn from your dimension reduction outputs -->
+<!-- - Discuss centering and scaling decisions -->
 
-When conducting principal component analysis, we choose to center but not scale the columns. We choose to center the data because we need the first principal component to be proportional to the maximum variance of our original data. Otherwise, the mean of the data set may be treated as an important variable. The columns are not scaled because we are more interested in columns with higher variance. Without scaling, PCA will prefer columns with more variance. 
+We first one-hot-encoded the data as suggested by the instruction. This is a commonly used encoding method for categorical data. Why don't we just use the original `lingData`? The answers for each question do not have a natural order. But the ordinal encoding in `lingData` by `0, 1, 2, ...` creates an non-existing ordinal relationship between the answers (i.e. answers will not equivalently treated in the model we put it into). While in one-hot encoding, each answer is one binary vector with no ordinal relationship. Therefore we do not introduce this artificial bias. After encoding, we have a 46,431 by 468 data matrix.
 
-Those are the columns we are interested in because they suggest that there are many different responses to the question. Low variance suggests that either everyone selected that answer or nobody did. Either way, that column won't be very helpful when it comes to clustering.
-```{r pca, fig.width = 4,  fig.height = 3}
-prcomp_ling <- prcomp(x = binary_response, center = TRUE, scale = FALSE)
+```{r pca, echo = FALSE, message=FALSE, warning=FALSE}
+# One-hot encoding
+one_hot_data <- ling_data %>%
+  gather(quest, count, -c(1:4, 72:73)) %>%
+  mutate(value = 1) %>%
+  filter(count != 0) %>%
+  pivot_wider(names_from = c('quest', 'count'), values_from = value, values_fill = 0)
 
-ling_scores <- as.data.frame(prcomp_ling$x)
+# state grouping
+data(state)
+division <- as.character(setNames(as.list(as.character(state.division)), state.abb)[one_hot_data$STATE])
+region <- as.character(setNames(as.list(as.character(state.region)), state.abb)[one_hot_data$STATE])
 
-ling_scores <- prcomp_ling$x %>%
-  as.data.frame() %>%
-  mutate(lat = ling_data$lat) %>%
-  mutate(long = ling_data$long) %>%
-  mutate(STATE = ling_data$STATE)
+# pca
+pca_raw <- one_hot_data %>%
+  select(-(1:6)) %>%
+  prcomp(center = F)
 
-ggplot(ling_scores) +
-  aes(x = PC1, y = PC2, col = long) +
-  geom_point(size = 0.1, shape = 1) +
-  labs(title = "PCA: Principal Component 1 vs Principal Component 2",
-       x = "PC1", y = "PC2", color = "Longitude") +
-  theme_classic() +
-  scale_color_gradient(low = "yellow", high = "darkblue") 
+pca_centered <- one_hot_data %>%
+  select(-(1:6)) %>%
+  prcomp(center = T)
 
-
+pca_scaled <- one_hot_data %>%
+  select(-(1:6)) %>%
+  prcomp(scale = T)
 ```
 
-We can already see a pattern forming when comparing the first two principal components. Users in the Western United States receive lower PC1 and PC1 scores. Users in the Eastern Unites States clearly receive much higher PC1 scores. This tells us that PCA has discovered sources of variance that will facilitate later classification based on region.
+Here we mainly explored principal component analysis (PCA) as the dimensional reduction method. Our assumption is that there is dialectometry (i.e. geographical differences in the dialect) in the dataset. So we would like to check if there are any visual groups by geography on the reduced space. We grouped the samples by four geographical regions according to the `state` dataset in base R: Northeast, South, North Central and West, based on the state from which each sample was collected. There are a small fraction of samples (327) with erroneous state name and we just disregard them (shown as `NULL` in the legend).
 
-```{r pca2, fig.width = 4,  fig.height = 3}
+```{r fig4, fig.cap = 'Principal component analysis with raw, centered and scaled data', fig.width = 8, fig.height = 3.5, echo = FALSE, message=FALSE, warning=FALSE}
+# pca visualization
+plt_pca_raw <- pca_raw %>%
+  augment(one_hot_data) %>% # add original dataset back in
+  ggplot(aes(.fittedPC1, .fittedPC2, color = region)) + 
+  geom_point(size = 0.2, alpha = 0.5) +
+  labs(x = 'PC1', y = 'PC2') +
+  ggtitle('Raw data') +
+  theme(plot.margin = unit(c(2,2,2,2), "cm")) + 
+  theme_bw()
 
-ggplot(ling_scores) +
-  aes(x = PC1, y = PC2, col = lat) +
-  geom_point(size = 0.1, shape = 1) +
-  labs(title = "PCA: Principal Component 1 vs Principal Component 2",
-       x = "PC1", y = "PC2", color = "Latitude") +
-  theme_classic() +
-  scale_color_gradient(low = "yellow", high = "darkblue") 
+plt_pca_centered <-pca_centered %>%
+  augment(one_hot_data) %>% # add original dataset back in
+  ggplot(aes(.fittedPC1, .fittedPC2, color = region)) + 
+  geom_point(size = 0.2, alpha = 0.5) +
+  labs(x = 'PC1', y = 'PC2') +
+  ggtitle('Centered data') +
+  theme(plot.margin = unit(c(2,2,2,2), "cm")) + 
+  theme_bw()
+
+plt_pca_scaled <- pca_scaled %>%
+  augment(one_hot_data) %>% # add original dataset back in
+  ggplot(aes(.fittedPC1, .fittedPC2, color = region)) + 
+  geom_point(size = 0.2, alpha = 0.5) +
+  labs(x = 'PC1', y = 'PC2') +
+  ggtitle('Scaled data') +
+  theme(plot.margin = unit(c(2,2,2,2), "cm")) + 
+  theme_bw()
+
+ggarrange(plt_pca_raw, plt_pca_centered, plt_pca_scaled, nrow = 1, common.legend = T, legend = 'bottom')
 ```
 
-The differences aren't quite as strong, but we can see that there is also a difference between users in the Northern and Southern United States. This time, users in the Northern U.S. receive lower PC1 and PC2 scores. Southern U.S. users receive higher PC2 scores. Putting the two plots together, we can already see three rough clusters forming: Northwest, mid-East coast, and Southeast U.S.
+First we want to see if centering and scaling of the data would help with PCA. We embedded the data points into the space spanned by the first two principal components (PC) and colored them by region. As shown in the left plot of Fig. 4, first we can see that the first PC is dominated by a group of outliers and the majority of the data points have negative values in PC1. This is expected because PCA can be regarded as a regression model without an intercept. If the data is not centered, the first PC will still be forced to go through the origin, thus its direction will not capture the largest variation in the data. Therefore in the R `prcomp` function, the data will first be centered by default. And although the separation are not entirely clear, we can already see the data points are roughly grouped in terms of the regions. Then we can see that centering greatly improves the visualization (middle plot). We can see visual clusters of data points in approximately round shape and all the points are centered around the origin. The regional groups become quite clear on the PCA plot. Finally on the PCA plot with the scaled data on the right side, we can further see an slightly clearer separation between the regional groups of samples. Scaling makes the standard deviations of the features uniform and therefore PCA will more accurately capture the variation of each feature rather than the scale. Thus, we used the scaled data for our analysis.
 
-### Eliminating components
+```{r fig5, fig.cap = 'Projecting PC1 and PC2 onto the US map', fig.width = 6, fig.height = 6.5, out.height='60%', out.width='60%', echo = FALSE, message=FALSE, warning=FALSE}
+# Map PC geographically
+state_df <- map_data("state")
+map_pc1 <- pca_scaled %>%
+  augment(one_hot_data) %>% # add original dataset back in
+  filter(long > -125) %>% # remove Alaska
+  ggplot(aes(long, lat, color = .fittedPC1)) + 
+  geom_point(size = 1, alpha = 0.5) +
+  geom_polygon(aes(x = long, y = lat, group = group), 
+               data = state_df, colour = "black", fill = NA) +
+  labs(color = 'PC1') +
+  theme(plot.margin = unit(c(2,2,2,2), "cm")) + 
+  scale_color_viridis_b() +
+  theme_void()
 
-In order for data reduction to be successful, we have to eliminate some of the principal components that we calculated. The following plot shows that the first 250 principal components describe nearly all of the variation. We have successfully reduced the number of variables from 468 to 250.
-```{r pca3, fig.width = 4,  fig.height = 2}
-ggplot() + 
-  aes(x = 1:468, y = summary(prcomp_ling)$importance[3,]) +
-  geom_line(color = "#EE1F60") +
-  theme_minimal() +
-  labs(y = "Cumulative prop. of var.",
-       x = "Principal Component",
-       title = "Cumulative prop. of variance vs PC")
+map_pc2 <- pca_scaled %>%
+  augment(one_hot_data) %>%
+  filter(long > -125) %>%
+  ggplot(aes(long, lat, color = .fittedPC2)) + 
+  geom_point(size = 1, alpha = 0.5) +
+  geom_polygon(aes(x = long, y = lat, group = group), 
+               data = state_df, colour = "black", fill = NA) +
+  labs(color = 'PC2') +
+  theme(plot.margin = unit(c(2,2,2,2), "cm")) + 
+  scale_color_viridis_b() +
+  theme_void()
 
-
+ggarrange(map_pc1, map_pc2, nrow = 2)
 ```
 
+To further interpret the PCA results, we investigated how the PCs related to geography by projecting them onto the US map. In Fig. 5, we see that PC1 mainly separates samples from the northeast to the other regions, showing only low values on the northeast part of the US and generally high values on the other parts. For PC2, we see a clear variation from the northwest to southeast. Samples in the northwest half of the US has relative high PC2 values and the other half has lower values.
 
+```{r fig6, fig.cap = 'Cumulative percent variance explained by PCs', fig.width = 4.5, fig.height = 2.7, out.height='65%', out.width='65%', echo = FALSE, message=FALSE, warning=FALSE}
+# %variance explained
+pca_scaled %>%
+  tidy(matrix = "eigenvalues") %>%
+  ggplot(aes(PC, cumulative)) +
+  geom_col(fill = "#56B4E9", alpha = 0.8) +
+  labs(x = 'Top n PCs', y = '%Variance explained') +
+  scale_y_continuous(
+    labels = scales::percent_format(),
+    expand = expansion(mult = c(0, 0.01))) +
+  theme_bw()
+```
 
-
-It would be a bad idea to perform PCA on the original data because it is categorical. This is a problem because it is difficult to compute the "distance" between different users and variables. In other words, it is much harder to quantify how different they are. The core idea of PCA is reducing variance, and it's not as clear how to interpret the variance of categorical variables.
-
-
+Perform clustering on the PCA reduced data can reduce computing time, deals with colinearity in the data and remove noise (if we consider small PCs to be predominantly noise). We thus finally investigated the proportion of variance explained by the PCs. As shown in Fig.6, we can see that the top PCs do not explain a high proportion of the total variance in the data. The first two PCs only account for 1.9% and 1.6% of the variance, respectively. And it takes the top 126 PCs to cover 50% of the total variance. Hence, there is not a clear indication of how many PCs we should use for clustering. We therefore further experiment with the cut-offs in the following section.
 
 # Clustering
 
-We finally begin our statistical analysis. As mentioned in the introduction, we will use multiple supervised learning techniques to draw conclusions from our data: k-means clustering and non-negative matrix factorization.
-## k-Means
+<!-- - This is where you discuss and show plots about the results of whatever clustering methods your tried - k-means, hierarchical clustering, NMF, etc. -->
 
-We will perform k-Means clustering on the reduced data because this algorithm is known to perform poorly with high-dimensional data. We claimed to see three rough clusters after conducting PCA, so let's include k = 3 in the set of potential numbers of clusters. We will then take another look at our PCA plot and see if our guess was correct.
-```{r kmeans1, fig.width = 4,  fig.height = 3}
-#k <- 4  # set number of clusters
-# k-means using all variables
-#kmeans_pca_ling <- kmeans(ling_scores[,1:250],
-#                      centers = k)
+Our goal in this section is to identify clusters of the samples and hopefully find relationship between the clusters to geographical regions. We explored K-means and non-negative matrix factorization (NMF) as clustering methods.
 
+```{r fig7, fig.cap = 'Elbow plot for K-means clustering', fig.width = 5.5, fig.height = 4.5, out.height='50%', out.width='50%', echo = FALSE, message=FALSE, warning=FALSE}
+# k-means
+# elbow plot
+wss <- function(df, k) {
+  kmeans(df, k, nstart = 10)$tot.withinss
+}
 
-#ggplot(ling_scores) +
-#  aes(x = PC1, y = PC2, color = as.factor(kmeans_pca_ling$cluster)) +
-#  geom_point(size = 0.5, alpha = 0.1) +
-#  labs(title = "K-means clustering (k = 3)",
-#       color = "Clusters") +
-#  guides(colour = guide_legend(override.aes = list(size=3, alpha = 1))) +
-#  scale_colour_brewer(palette = "Set1") +
-#  theme_minimal()
+# Compute and plot wss
+k.values <- 2:9
+
+# extract wss for 2-15 clusters
+set.seed(7)
+wss_values <- map_dbl(.x = k.values, df = pca_scaled$x[,1:50], wss)
+
+plot(k.values, wss_values,
+       type="b", pch = 19, frame = FALSE, 
+       xlab="Number of clusters K",
+       ylab="Total within-clusters sum of squared error")
+
 ```
-### Choosing number of cluster centers
 
-To select an accurate number of cluster centers, we will test a variety of values for stability. Below, we see multiple plots for each potential k. If all plots for a single k look similar, then we know it is likely more stable and truer to reality.
+```{r fig8, fig.cap = 'K-means clustering results on PCA plot', fig.width = 5.5, fig.height = 4.5, out.height='55%', out.width='55%', echo = FALSE, message=FALSE, warning=FALSE}
+# Result on PCA plot
+set.seed(7)
+km_out <- kmeans(pca_scaled$x[,1:50], 3, nstart = 10)
 
-```{r kmeans2, fig.width = 6,  fig.height = 2}
-ks <- c(3,4,5,7)
-ntrials <- 4
-kmeans_ks <- lapply(ks, function(k) {
-  lapply(1:ntrials, function(trial) {
-    return(kmeans(ling_scores[,1:250], centers = k)$cluster)
+pca_scaled %>%
+  augment(one_hot_data) %>% # add original dataset back in
+  ggplot(aes(.fittedPC1, .fittedPC2, color = as.factor(km_out$cluster))) + 
+  geom_point(size = 0.2, alpha = 0.5) +
+  labs(x = 'PC1', y = 'PC2', color = "Cluster", title = 'K-means clustering') +
+  theme(plot.margin = unit(c(2,2,2,2), "cm")) + 
+  theme_bw()
+```
+
+```{r fig9, fig.cap = 'K-means clustering result with different PCs used', fig.width = 7, fig.height = 7, out.height='55%', out.width='55%', echo = FALSE, message=FALSE, warning=FALSE}
+# How many PCs to use?
+set.seed(7)
+km_pcs <- lapply(list(pca_scaled$x[,1:50], 
+                          pca_scaled$x[,1:100], 
+                          pca_scaled$x[,1:200], 
+                          scale(one_hot_data %>% select(-(1:6)))), 
+                     function(df) {
+                       return(kmeans(df, centers = 3, nstart = 10)$cluster)
+                       }
+                 )
+
+plts_pcs <- lapply(1:4, function(i) {
+  pca_scaled %>%
+    augment(one_hot_data) %>% 
+    ggplot(aes(.fittedPC1, .fittedPC2, color = as.factor(km_pcs[[i]]))) + 
+    geom_point(size = 0.2, alpha = 0.5) +
+    labs(x = 'PC1', y = 'PC2', color = 'Cluster', 
+         title = list('First 50 PC', 'First 100 PC', 'First 200 PC', 'Original data')[[i]]) +
+    theme_bw()
   })
-})
 
-plt_kmeans <- lapply(kmeans_ks, function(kmeans_k) {
-  lapply(kmeans_k, function(clust) {
-    ggplot(ling_scores) +
-      aes(x = PC1, y = PC2, color = as.factor(clust)) +
-      geom_point(size = 0.5, alpha = 0.1) +
-      guides(colour = guide_legend(override.aes = list(size=3, alpha = 1))) +
-      labs(color = "Cluster")  +
-      scale_colour_brewer(palette = "Set1") +
-      theme_minimal()
-  })
-})
-plts <- list()
-for (i in 1:length(ks)) {
-  plts[[i]] <- ggarrange(plotlist = plt_kmeans[[i]],
-                         common.legend = T, nrow = 1, ncol = 4,
+ggpubr::ggarrange(plotlist = plts_pcs,
+                         common.legend = T, nrow = 2, ncol = 2,
                          legend = "bottom")
-}
-# look at plots
-for (i in 1:length(ks)) {
-  print(plts[[i]])
-}
+
+ari_pcs <- sapply(1:4, function(i) {adjustedRandIndex(km_pcs[[i]], km_out$cluster)})
+
 ```
-### Geographic meaning
 
-We can see that our predictions in the PCA section were correct. The data is most frequently clustered into three groups: Northeastern U.S., Southeastern U.S., and West Coast plus Midwest. In addition, using k=4 is often able to differentiate between the West Coast and the Midwest, but those results are not as stable. In the above plots, it can be seen as a wedge in the upper left side of the mass.
+For k-means clustering, we need to specify the hyperparameter k which corresponds to the number of clusters to find. Here we search for the optimal k by plotting the total within cluster loss for each k, namely the elbow plot. The United States can be roughly divided into 4 regions (mentioned before) and 9 divisions (New England, Middle Atlantic, South Atlantic, East South Central, West South Central, East North Central, West North Central, Mountain and Pacific) according to the `state` dataset. We therefore choose to search k from 2 to 9. We used the `kmeans` function in base R to perform clustering using the first 50 PCs. Noted that in our analysis, we always set `nstart` argument to be 10 to reduce the instability of results caused by bad initialization. This essentially runs the algorithm each time with 10 random initial sets of centroids and pick the one result with the minimal loss. As shown in Fig. 7, we can see that the first elbow appears at k=3 on the plot. In Fig. 8, we see that the three clusters are clearly separated on the space spanned by the first to PC. So we choose k to be 3 for the following analysis.
 
-The following shows the data grouped into three categories and plotted on a map of the United States.
-
-
-
-
-```{r kmeans3, fig.width = 5,  fig.height = 3}
-
-k <- 3  # set number of clusters
-# k-means using all variables
-kmeans_pca_ling <- kmeans(ling_scores[,1:250],
-                      centers = k)
-
-
-
-ling_data_kmeans_plot <- ling_data %>%
-  mutate(clust = as.factor(kmeans_pca_ling$cluster))
-
-
-ggplot(ling_data_kmeans_plot) +
-  geom_point(aes(x = long, y = lat, color = clust), 
-             size = 1, alpha = 1, shape = 1) +
-  geom_polygon(aes(x = long, y = lat, group = group),
+```{r fig10, fig.cap = 'Geographical distribution of K-means clusters', fig.width = 6, fig.height = 3.5, echo = FALSE, message=FALSE, warning=FALSE}
+# Result on map
+one_hot_data %>%
+  mutate(Cluster = as.factor(km_out$cluster)) %>%
+  filter(long > -125) %>%
+  ggplot(aes(long, lat, color = Cluster)) + 
+  geom_point(size = 1, alpha = 0.5) +
+  geom_polygon(aes(x = long, y = lat, group = group), 
                data = state_df, colour = "black", fill = NA) +
-  my_map_theme +
-  guides(colour = guide_legend(override.aes = list(size=3, alpha = 1, shape = 16))) +
-  labs(color = "Cluster", title = "K-means clustering with 3 centers") +
-  scale_colour_brewer(palette = "Set1")
+  ggtitle('K-means clustering') + 
+  theme(plot.margin = unit(c(2,2,2,2), "cm")) + 
+  theme_void()
+
+region[region == 'North Central'] = 'West'
+ari_region <- adjustedRandIndex(region, km_out$cluster)
 ```
 
-The strongest clusters correspond the the Southeast and Northeast. This makes sense because those regions have had a continuous culture for much longer than other regions of the U.S. Their way of life has endured in the same regions for centuries. On the other hand, much of the Western U.S. was settled relatively recently by a highly diverse assortment of people. As a result, it is harder to confidently identify someone from that area from speech alone.
+We then examined how the number of PCs used affects the clustering result. We used the first 100 PCs, first 200 PCs and the scaled original data to perform the clustering. As shown in Fig. 9, we can see the cluster we obtained are all very similar. We use the Adjusted Rand Index (ARI) to measure quantitatively the similarity between the clustering results. ARI ranges from -0.5 to 1, where 0 implies random permutation and 1 implies identical clusters. Comparing the results with first 100 PCs, first 200 PCs and full dataset to the original result, we get ARI 0.988, 0.983 and 0.979, respectively. This shows that the number of PCs to use does not have a noticeable influence on the clustering result. We therefore continue to use the first 50 PCs in order to save computing time.
 
+```{r fig11, fig.cap = 'Elbow plot for NMF', fig.width = 5.5, fig.height = 4.5, out.height='50%', out.width='50%', echo = FALSE, message=FALSE, warning=FALSE}
+# NMF
+one_hot_matrix <- as.matrix(one_hot_data %>% select(-(1:6)))
 
-## Non-negative matrix factorization (NMF)
-
-
-To verify our results from k-means clustering, we will also run NMF on our reduced data.
-```{r nmf1, results=FALSE}
-
-
-nmf_clustering <- function(data = ling_scores[,1:250], k = 3) {
-  temp_nmf <- nmf(data, k = k)$w
-  temp_clusters <- rep(NA, nrow(temp_nmf))
-  for (i in 1:nrow(temp_nmf)) {
-    temp_clusters[i] <- which.max(temp_nmf[i,])
-  }
-  
-  return(temp_clusters)
+# elbow plot
+nmf_mse <- function(mat, k) {
+  nmf_out <- nmf(A = mat, k = k, verbose = F)
+  mse(A = mat, w = nmf_out$w, d = nmf_out$d, h = nmf_out$h)
 }
 
-#test <- nmf_clustering()
+# Compute and plot wss for k = 1 to k = 15
+k.values <- 2:9
 
+# extract mse for 2-9 clusters
+set.seed(7)
+nmf_mse_values <- map_dbl(.x = k.values, mat = one_hot_matrix, nmf_mse)
 
-#ggplot(ling_scores) +
-#  aes(x = PC1, y = PC2, color = as.factor(test)) +
-#  geom_point(size = 0.5, alpha = 0.1) +
-#  labs(title = "NMF clustering (k = 3)",
-#       color = "Clusters") +
-#  guides(colour = guide_legend(override.aes = list(size=3, alpha = 1))) +
-#  scale_colour_brewer(palette = "Set1") +
-#  theme_minimal()
-
+plot(k.values, nmf_mse_values,
+       type="b", pch = 19, frame = FALSE, 
+       xlab="Number of clusters K",
+       ylab="MSE")
 ```
 
-### Choosing number of cluster centers
+Next we visualize the clusters on the US map. We can see that three clusters clearly correspond to the northeast, southeast and the west/central regions, respectively. If we group the samples into these three geographical regions, we can compare this grouping to the clusters we obtained. This results in an ARI of 0.36. This shows that we can indeed cluster the samples that reflects geographical dialect differences.
 
-The process for choosing the number of cluster centers is almost identical to the one used in k-means clustering. Once again, we are looking for the value of k that provides the most stable predictions.
+We next tried non-negative matrix factorization. We used the `nmf` function in `RcppML` package, which is optimized for sparse matrices (our data has ~85% zeros). Similar to k-means, we made an elbow plot using the mean square error (MSE) of the matrix factorization. We again found the first elbow to appear at k=3. By assigning each sample to the factor with the highest value, we obtain the cluster memberships. As shown on the PCA plot and the US map (Fig. 12, 13), we found that the clusters are visually very similar to those obtained by k-means. Calculating the Adjusted Rand Index (ARI), we found that the two cluster separations are indeed similar with ARI = 0.55. 
 
-```{r nmf2, results=FALSE, fig.width = 6,  fig.height = 2}
-ks_nmf <- c(3,4,5,7)
-ntrials_nmf <- 4
-nmf_ks <- lapply(ks_nmf, function(k) {
-  lapply(1:ntrials_nmf, function(trial) {
-    return(nmf_clustering(data = ling_scores[,1:250], k = k))
-  })
-})
+```{r fig12, fig.cap = 'NMF clustering results on PCA plot', fig.width = 5.5, fig.height = 4.5, out.height='55%', out.width='55%', echo = FALSE, message=FALSE, warning=FALSE}
+# result on PCA
+set.seed(7)
+nmf_out <- nmf(A = one_hot_matrix, k = 3, verbose = F)
+nmf_cluster <- apply(nmf_out$w, 1, which.max)
 
-plt_nmf <- lapply(nmf_ks, function(nmf_k) {
-  lapply(nmf_k, function(clust) {
-    ggplot(ling_scores) +
-      aes(x = PC1, y = PC2, color = as.factor(clust)) +
-      geom_point(size = 0.5, alpha = 0.1) +
-      guides(colour = guide_legend(override.aes = list(size=3, alpha = 1))) +
-      labs(color = "Cluster")  +
-      scale_colour_brewer(palette = "Set1") +
-      theme_minimal()
-  })
-})
-plts <- list()
-for (i in 1:length(ks_nmf)) {
-  plts[[i]] <- ggarrange(plotlist = plt_nmf[[i]],
-                         common.legend = T, nrow = 1, ncol = 4,
-                         legend = "bottom")
-}
-# look at plots
-for (i in 1:length(ks_nmf)) {
-  print(plts[[i]])
-}
+pca_scaled %>%
+  augment(one_hot_data) %>% # add original dataset back in
+  ggplot(aes(.fittedPC1, .fittedPC2, color = as.factor(nmf_cluster))) + 
+  geom_point(size = 0.2, alpha = 0.5) +
+  labs(x = 'PC1', y = 'PC2', color = "Cluster", title = 'NMF clustering') +
+  theme(plot.margin = unit(c(2,2,2,2), "cm")) + 
+  theme_bw()
+
+# how similar it is to k-means clusters
+ari_methods <- adjustedRandIndex(nmf_cluster, km_out$cluster)
 ```
 
-Again, k = 3 seems to be the winner. Even in plots with more clusters, the same 3 always make an appearance. This gives us a high degree of confidence in the generalizability of our clusters.
-
-### Geographic meaning
-
-```{r nmf3, results=FALSE, fig.width = 5,  fig.height = 3} 
-
-ling_data_nmf_plot <- ling_data %>%
-  mutate(clust = as.factor(nmf_clustering(k = 3)))
-
-
-ggplot(ling_data_nmf_plot) +
-  geom_point(aes(x = long, y = lat, color = clust), 
-             size = 1, alpha = 1, shape = 1) +
-  geom_polygon(aes(x = long, y = lat, group = group),
+```{r fig13, fig.cap = 'Geographical distribution of NMF clusters', fig.width = 6, fig.height = 3.5, echo = FALSE, message=FALSE, warning=FALSE}
+# Result on map
+one_hot_data %>%
+  mutate(Cluster = as.factor(nmf_cluster)) %>%
+  filter(long > -125) %>%
+  ggplot(aes(long, lat, color = Cluster)) + 
+  geom_point(size = 1, alpha = 0.5) +
+  geom_polygon(aes(x = long, y = lat, group = group), 
                data = state_df, colour = "black", fill = NA) +
-  my_map_theme +
-  guides(colour = guide_legend(override.aes = list(size=3, alpha = 1, shape = 16))) +
-  labs(color = "Cluster", title = "NMF clustering with 3 centers") +
-  scale_colour_brewer(palette = "Set1")
+  ggtitle('NMF clustering') + 
+  theme(plot.margin = unit(c(2,2,2,2), "cm")) + 
+  theme_void()
 ```
-While we are again quite confident that there are three cluster centers, the results aren't as clear or stable as those of k-means clustering.
 
+One advantage of NMF is that we can conveniently interpret the clustering result with the fitted model. For example, we can study the dominating features in each factor by looking at the feature matrix W. In the heatmap showing the W matrix (Fig. 14), we can clearly see that there are only a fraction of entries have distinct high values, which suggests these features (i.e. answers) has the most prominent regional differences. We therefore find the 10 answers that have the highest determining effect for each cluster (namely the entries with the highest value in each factor). The result is shown in Table. 1. For instance, giving the second answer to question 53 is the dominating feature of the respondents in cluster 1, which corresponds to the west and north region. And giving the second answer for question 54 is the dominating feature of the respondents in cluster 2, which corresponds to the northeast region.
+
+```{r fig14, fig.cap = 'Feature matrix H from NMF', fig.width = 6, fig.height = 3.5, echo = FALSE, message=FALSE, warning=FALSE}
+# feature matrix to determine which features (questions) are associated with the questions
+pheatmap(nmf_out$h,
+         labels_row = c('Factor1', 'Factor2', 'Factor3'),
+         scale = "row",
+         cluster_rows = F,
+         cutree_cols = 3)
+```
+
+```{r top-feature}
+# Which questions has the strongest effect determining each cluster
+# From 
+# https://stackoverflow.com/questions/18450778/r-fastest-way-to-get-the-indices-of-the-max-n-elements-in-a-vector
+whichpart <- function(x, n=10) {
+  nx <- length(x)
+  p <- nx-n
+  xp <- sort(x, partial=p)[p]
+  which(x > xp)
+}
+
+top10_feature_coeff <- apply(nmf_out$h, 1, whichpart, n=10)
+top10_feature_cluster1 <- colnames(one_hot_matrix)[top10_feature_coeff[, 1]]
+top10_feature_cluster2 <- colnames(one_hot_matrix)[top10_feature_coeff[, 2]]
+top10_feature_cluster3 <- colnames(one_hot_matrix)[top10_feature_coeff[, 3]]
+
+data.frame(Cluster1 = top10_feature_cluster1, 
+           Cluster2 = top10_feature_cluster2,
+           Cluster3 = top10_feature_cluster3) %>% 
+  kable(caption = 'Top 10 features of each cluster/factor')
+
+```
 
 # Stability of findings to perturbation
 
-The results we have seen so far seem to pass the reality check and match what we know historically about the United States. I doubt anyone familiar with American culture would be surprised to see the groupings. However, we must ensure that we are not falling victim to confirmation bias. In the subsequent sections, we will test how much torture our results can endure.
+<!-- - What happens to your clusters when you perturb the data set? -->
+<!-- - What happens when you re-run the algorithm with different starting points? -->
 
-## Perturbing the data set
-We will resample users with replacement from our original cleaned data set to determine if the clustering is stable. We will then run PCA again. Afterwards, the reduced data will be clustered using both methods and plotted on a map of the United States.
+We checked the stability of our k-means clustering results in two ways. First, for k from 2 to 5, we run the k-means for four times with different initial state and compared whether stable clusters can be obtained. As we can see in Fig. 15, with k = 2 or 3, the clustering results are fairly stable. While with k = 4 or 5, the clusters start to vary across replications. This again supports our choice of k to be 3 in the analysis.
 
-```{r bootstrap, results=FALSE, fig.width = 5,  fig.height = 3}
-# Resample the data
-resampled_indices <- sample(x = 1:nrow(binary_response), size = nrow(binary_response), replace = TRUE)
-resampled_data = binary_response[resampled_indices,]
+We next examined how stable the clustering result is to subsampling. We randomly subsampled 90%, 60% and 30% of the data 20 times and performed k-means clustering on the 60 subsampled datasets. We then compare the results to the clusters we obtained with all the samples using ARI. It turns out that with 90% subsampled data, the mean ARI of the clustering is 0.99 across the 20 replicates. For the 60% and 30% subsampled data, mean ARIs are 0.98 and 0.96, respectively. Therefore we can conclude that our clustering result is stable across subsamples. 
 
-# Conduct PCA
-resampled_pca <- prcomp(x = resampled_data, center = TRUE, scale = FALSE)
-resampled_scores <- resampled_pca$x[,1:250]
+```{r fig15, fig.cap = 'Stability of K-means clustering across different initializations', fig.width = 9, fig.height = 9, echo = FALSE, message=FALSE, warning=FALSE, cache.lazy = FALSE}
 
-#ggplot() + 
-#  aes(x = 1:468, y = summary(resampled_pca)$importance[3,]) +
-#  geom_line(color = "#EE1F60") +
-#  theme_minimal() +
-#  labs(y = "Cumulative proportion of variance",
-#       x = "Principal Component",
-#       title = "Cumulative proportion of variance vs Pricipal Component")
+# How stable are the clusters with different k
+ks <- 2:5  # ks to try
+ntrials <- 4  # number of repititions for each k
 
+# run kmeans multiple times
+set.seed(7)
+kmeans_ks <- lapply(ks, function(k) {
+  lapply(1:ntrials, function(trial) {
+    return(kmeans(pca_scaled$x[,1:50], centers = k, nstart = 10)$cluster) # scale(one_hot_data %>% select(-(1:6)))
+  })
+})
 
-# Calculate k-means again
-resampled_kmeans_pca <- kmeans(resampled_scores, centers = 3)
+# make plot of the resulting clusters from each run of kmeans
+km_ks <- lapply(1:4, function(i) {
+  lapply(1:4, function(j) {
+    pca_scaled %>%
+      augment(one_hot_data) %>% # add original dataset back in
+      ggplot(aes(.fittedPC1, .fittedPC2, color = as.factor(kmeans_ks[[i]][[j]]))) + 
+      geom_point(size = 0.2, alpha = 0.5) +
+      labs(x = 'PC1', y = 'PC2', color = "Cluster") +
+      ggtitle(paste0('K = ', i+1, ', Rep ', j)) +
+      theme_bw()
+  })
+})
 
-# Plot k-means
-resampled_kmeans_plot <- ling_data[resampled_indices,] %>%
-  mutate(clust = as.factor(resampled_kmeans_pca$cluster))
-
-
-ggplot(resampled_kmeans_plot) +
-  geom_point(aes(x = long, y = lat, color = clust), 
-             size = 1, alpha = 1, shape = 1) +
-  geom_polygon(aes(x = long, y = lat, group = group),
-               data = state_df, colour = "black", fill = NA) +
-  my_map_theme +
-  guides(colour = guide_legend(override.aes = list(size=3, alpha = 1, shape = 16))) +
-  labs(color = "Cluster", title = "Resampled k-means clustering with 3 centers") +
-  scale_colour_brewer(palette = "Set1")
-
-
-# Calculate NMF again
-resampled_nmf <- nmf_clustering(data = resampled_scores, k = 3)
-# Plot NMF
-
-resampled_nmf_plot <- ling_data[resampled_indices,] %>%
-  mutate(clust = as.factor(resampled_nmf))
-
-
-ggplot(resampled_nmf_plot) +
-  geom_point(aes(x = long, y = lat, color = clust), 
-             size = 1, alpha = 1, shape = 1) +
-  geom_polygon(aes(x = long, y = lat, group = group),
-               data = state_df, colour = "black", fill = NA) +
-  my_map_theme +
-  guides(colour = guide_legend(override.aes = list(size=3, alpha = 1, shape = 16))) +
-  labs(color = "Cluster", title = "Resampled NMF clustering with 3 centers") +
-  scale_colour_brewer(palette = "Set1")
+ggarrange(plotlist = unlist(km_ks, recursive = F),
+                         common.legend = T, nrow = 4, ncol = 4,
+                         legend = "bottom")
 
 ```
-We can see that the three distinct regions still appear after performing both clustering methods. The main conclusion of our data analysis, that there are three major regions when it comes to speech patterns, still holds after several layers of perturbation. The results of PCA seem to have withstood the perturbation better than those from NMF. From those comparisons, we have evidence that PCA is the more stable method when it comes to problems similar to this one.
 
-Another stability check was integrated into our analysis. For each method, we used many different starting points to pick the number of cluster centers. In the above figures, we can see that virtually every single one of the 32 subplots showed the same three major clusters. From this, we can conclude that our results are stable when it comes to starting points.
+```{r subsampling, echo = FALSE, message=FALSE, warning=FALSE}
+# sub sampling
+props = c(0.9, 0.6, 0.3)
+ntrials <- 20
+set.seed(7)
+km_subsamps <- sapply(props, function(prop) {
+  sapply(1:ntrials, function(trial) {
+    ind <- sample(nrow(pca_scaled$x), prop*nrow(pca_scaled$x))
+    cluster <- kmeans(pca_scaled$x[ind, 1:50], centers = 3, nstart = 10)$cluster
+    adjustedRandIndex(cluster, km_out$cluster[ind])
+  })
+})
 
-
+mean_subsamp <- colMeans(km_subsamps)
+sd_subsamp <- apply(km_subsamps, 2, sd)
+```
 
 # Conclusion
 
-- Discuss the three realms of data science by answering the questions in the instructions pdf.
-- Come up with a reality check that would help you to verify your clustering. You do not necessarily have to perform this reality check, but you can if doable.
-- What are the main takeaways from your exploration/clustering/stability analysis?
+In this data analysis workflow, the reality we want to study is the dialectometry, i.e. linguistic differences whose distribution is determined primarily by geography, of the US. And the data is supposed to reflect this reality, which are the answers to 67 dialectology questions designed by expert linguists from 47,471 people across the US. We consider it to be a good representation of the reality. We used dimension reduction methods and clustering methods to analyze this dataset. We learnt that based on the answers, the samples can roughly divide into three groups. We verified if these groups have geographical correspondence and found each group is clearly associated with different geographical regions of the US.
 
+For reality check, the most reliable way is to perform external validation. We may run another survey on a different set of dialectology questions and see if the answers show clear differences across the three clusters of regions we obtained. 
 
-## Data
+Choosing the number of clusters k is an important yet difficult task in cluster analysis. In our analysis, we found that the stability of clusters could be a very important aspect of choosing the optimal k. The elbow plots in this report did not show very clear elbows. But in the stability analysis, we found the clusters to be very unstable when we tried to cluster with k greater than 3. And this gives a strong evidence of choosing k to be 3. Given more time, I would probably experiment with more dimension reduction methods as PCA may not be the optimal choice for our one-hot encoded binary matrix. Also we could run stability check in a more quantitative manner for model selection.
 
-I think this data could be useful for certain decision-making purposes. This data set was collected anonymous users with no verification of their responses. If one takes the time to look at the CITY and STATE values, some are clearly jokes. The data is sufficient for satisfying someone's curiosity or practicing their data analysis skills, but it shouldn't be used to make any decisions of consequence. Ideally, each user's zip code could be recorded using the IP address that is provided to the website when they take the test. This would provide us with far more reliable data. 
-
-## Algorithms and analysis
-Despite the potential problems with the data, our clusters are representative of reality. As previously stated in this report, no person familiar with American culture is likely to disagree with our results. However, the problems with the data prevented us from drawing more insightful conclusions that do more than confirm what we already know. 
-
-
-## Future data
-We also showed that our data was stable to perturbations, which suggests that data collected in the future would behave similarly. A more stringent  stability check could entail scraping social media posts in each of these regions and searching for specific terminology found in the provided questions. Many social media platforms already provide the general location of each user, which would be more reliable than what they provide to a short internet survey.
-
-If I had more time, I would put more effort towards verifying the zip codes and checking how they relate to the reported cities and states. From my own testing, random 5-digit numbers often end up being real zip codes in the U.S., so it is likely that paranoid users entered random zip codes to prevent us from knowing their location. It would be difficult for us to differentiate between real and fake zip code values. Checking the cities and states could be a good place to start.
-
+<!-- - Discuss the three realms of data science by answering the questions in the instructions pdf. -->
+<!-- - Come up with a reality check that would help you to verify your clustering. You do not necessarily have to perform this reality check, but you can if doable. -->
+<!-- - What are the main takeaways from your exploration/clustering/stability analysis? -->
 
 # Academic Integrity Statement
 
+Here I make the truthful statements:
+I myself designed and performed all the data analysis procedures presented in this report.
+I myself wrote all the texts and produced all the figures in this report.
+I have included and documented all the procedures in the workflow and the results can be fully reproduced.
+Wherever I included the work from others, I cited the sources.
 
+I think academic honesty is an essential prerequisite for conducting any form of research. First, it is important that we take responsibility for our research results. Because science is built upon collaboration. Your results will be the foundation of other people's research. A dishonest or unreproducible research will possibly lead to a cascade of false results. Also, it is important that your work is original. Plagiarizing is not contributing anything new to the scientific community and it is disrespectful to the original author as you are taking their credit. Therefore, we should always keep our research honest, transparent and reproducible.
+
+<!-- - Please include your statement here. Do NOT include your name, to avoid putting it in the lab2_blind.pdf document. -->
+
+# References
+1. Nerbonne, J., & Kretzschmar, W. (2003). Introducing computational techniques in dialectometry. Computers and the Humanities, 37(3), 245-255.
+2. Nerbonne, J., & Kretzschmar, W. (2006). Progress in dialectometry: Toward explanation. Literary and Linguistic Computing, 21(4), 387-397.
+3. Dialect Survey. http://dialect.redlog.net/index.html
