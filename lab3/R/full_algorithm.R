@@ -90,14 +90,12 @@ fullKmeansTest <- function(data, m, k, N){
 # use 9 cores (i.e. one for each k)
 registerDoParallel(9) 
 
-# parameters for stability testing
-N <- 100 # repeat 100 times for each k
-m <- .5 # sample fraction
-k_max <- 10 # maximum number of k to try
+# parameters
+N <- 100 
+m <- .5 
+k_max <- 10 
 
-# load data
 load('data/lingBinary.RData')
-# select only the ID and the question columns
 data <- select(lingBinary, -CITY, -STATE, -ZIP, -lat, -long)
 
 # run kmeans stability test in parallel for k = 2, ..., k_max
@@ -107,10 +105,7 @@ result <- foreach(k = 2:k_max) %dopar% {
 
 # combine results into a single dataframe. Each column corresponds to a particualr k.
 result_df <- result %>%
-  # combine columns
   bind_cols() %>%
-  # save only 3 decimal points
   format(digits = 3)
 
-# save results
-write.table(result_df, "results.csv")
+write.table(result_df, "results/s_matrix.csv")

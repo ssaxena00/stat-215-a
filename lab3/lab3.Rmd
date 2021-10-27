@@ -34,6 +34,10 @@ source("R/similarity.R")
 sourceCpp("R/similarity.cpp")
 ```
 
+# Introduction
+
+This report aims to assess the stability of $k$-means through a popular procedure outlined in Ben-Hur et al. [2001], which uses stability as a guide for picking $k$. The data used is the provided lingBinary.Rdata from Lab 2, which contains answers to various linguistic survey questions from $45,512$ respondents from across the United States. The report clusters the data based on survey responses using the stability method, through which different coding languages (R and C++) are experimented with for performance.
+
 ```{r load-data}
 load("data/lingBinary.RData")
 # lingBinary: 474 columns, 45,152 rows
@@ -50,8 +54,8 @@ data <- lingBinary %>%
 n <- 5000 # sample size
 
 compare_time <- function(k) {
-  x1 <- sample(1:k, n, replace = TRUE) # vector 1
-  x2 <- sample(1:k, n, replace = TRUE) # vector 2
+  x1 <- sample(1:k, n, replace = TRUE) 
+  x2 <- sample(1:k, n, replace = TRUE)
   
   start_r <- proc.time() # start timer for R
   sim_r <- similarity(x1, x2)
@@ -66,16 +70,73 @@ compare_time <- function(k) {
 ```
 
 
+# Performance of Similarity Computations
+
+The correlation measure was used to compute similarity, as outlined by Fowlkes and Mallows in Ben-Hur et al. [2001]. It is worth noting that the asymptotic runtime for calculations in both languages is $O(n^2)$ for size $n$ vectors, as every pair of observations $(x1[i], x2[j])$ is iterated through. Also, both methods do not explicitly store the $q$-by-$q$ similarity matrix described, where $q$ is the number of data points common to each subsample. Instead, each element of the matrix $C_{ij}$ is computed by iterating over the original cluster assignment vector of size $n$, yielding a memory complexity of $O(n)$.
+
+On randomly sampled membership vectors of size $5000$ (for each of $k = 3, 4, and 5$ clusters), the similarity measure was calculated using both R and C++. As seen in the experiments, C++ is at least 23.35 times faster and up to 45.31 times faster than R. Actual running time does vary greatly between these languages; computational efficiency is a critical aspect to consider, especially when working with large datasets.
+
 Type  | k (# of clusters)  | Elapsed Time (s)
 ----- | ------------------ | ----------------  
 R     | 3                  |            4.390
-Cpp   | 3                  |            0.188
+C++   | 3                  |            0.188
 R     | 4                  |            6.479
-Cpp   | 4                  |            0.143
+C++   | 4                  |            0.143
 R     | 5                  |            3.958
-Cpp   | 5                  |            0.122
+C++   | 5                  |            0.122
 
 
+# Stability Analysis of k-means
 
 
+```{r histograms, dev = "png", dpi = 150, fig.height = 6, fig.width = 7, fig.cap="Distribution of the correlation similarity for different values of k."}
+plot_hist <- function(corr, k){
+  # Plot and return the histogram of the data, labelled
+  plot <- ggplot(results) + 
+    geom_histogram(aes(x = corr), binwidth = .01, 
+                   color = "black", fill = "blue") +
+    annotate("text", x = .4, y = 30, label = paste("k = ", k), size = 4) + 
+    ylim(0, 30) + xlim(.3, 1) + theme_classic() + 
+    theme(axis.title.x = element_blank(), axis.title.y = element_blank())
+  return(plot)
+}
 
+results <- read.csv("results/s_matrix.csv")
+
+# plot histograms for k = 2...10
+plots <- lapply(2:10, function(k){plot_hist(results[,k-1], k)})
+
+# show plot in a grid
+grid.arrange(plots[[1]], plots[[2]], plots[[3]],
+             plots[[4]], plots[[5]], plots[[6]],
+             plots[[7]], plots[[8]], plots[[9]],
+             ncol = 3, left = "Frequency", bottom = "Correlation similarity") 
+```
+
+Figure 1 shows the distribution of the correlation measure for different values of $k$. $k=3$ produced the most stable results with high mean and low variance in the distribution of correlation similarity scores. As the number of clusters increases beyond 3, the spread of the distributions generally become greater and the mean decreases, indicating that k-means becomes unstable for more than $3$ clusters. 
+
+Figure 2 reinforces this idea, where the cumulative density shows that more correlation values are near 1 for $k = 3$ than any other choice of $k$. Therefore, it is reasonable to choose $k=3$ to cluster the linguistics dataset. $k=3$ is trustworthy because in Lab 2, it was determined that $3$ clusters produced the lowest average silhouette value. This suggests that using this stability method may be a reliable method for choosing an appropriate value of $k$, as it provides similar results to the silhouette test. 
+
+```{r cumulative-plot, dev = "png", dpi = 150, fig.height = 5, fig.width = 7, fig.cap="Cumulative distribution of the correlation similarity for different values of k."}
+results %>%
+  mutate_all(sort) %>%
+  # convert the dataframe into long form
+  gather(key = "k", value = "corr", k2:k10) %>%
+  group_by(k) %>%
+  ggplot() +
+    # y =  [.01, .02, ..., 1.00] replicated 9 times (one for each k)
+    geom_point(aes(x = corr, y = rep(cumsum(rep(.01, 100)), 9), 
+                   color = k)) + 
+    labs(y = "Cumulative density", x = "Correlation similarity") + 
+    scale_color_discrete(breaks=c("k2", "k3", "k4","k5", "k6", "k7","k8", "k9", "k10"),
+                         labels=c("2","3","4","5","6","7","8","9","10")) + 
+    theme_classic()
+```
+
+# Conclusion
+
+It was determined that C++ runs much faster than R for the similarity calculation, which gives merit to the idea of using C++ rather than R when dealing with large datasets and lots of computation. Also, this stability method indicated that $k=3$ clusters should be chosen for clustering the linguistics dataset from Lab 2, which also agrees with the choice of $k=3$ clusters. It is fair to conclude that this stability method is a good way to test roboustness of clustering decisions in the future.
+
+# References
+
+Asa Ben-Hur, André Elisseeff, and Isabelle Guyon. A stability based method for discovering structure in clustered data. In Pacific symposium on biocomputing, volume 7, pages 6–17, 2001.
