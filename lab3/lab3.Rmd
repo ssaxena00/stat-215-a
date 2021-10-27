@@ -1,0 +1,81 @@
+---
+title: "Lab 3 - Parallelizing k-means"
+author: "Sahil Saxena"
+date: "October 26, 2021"
+header-includes:
+   - \usepackage{float}
+output: 
+  pdf_document:
+    number_sections: true
+---
+
+```{r setup, echo = FALSE, message=FALSE, warning=FALSE}
+# load in useful packages
+library(tidyverse)
+library(forcats)
+library(lubridate)
+library(stringr)
+require(gridExtra)
+library(Rcpp)
+
+# set default knitr chunks
+knitr::opts_chunk$set(
+  echo = FALSE,  # don't print the code chunk
+  warning = FALSE,  # don't print warnings
+  message = FALSE,  # don't print messages
+  fig.width = 6,  # set default width of figures
+  fig.height = 4,  # set default height of figures
+  fig.align = "center",  # always align figure in center
+  fig.pos = "H",  # always plot figure at the exact location of the code chunk
+  cache = FALSE)  # don't cache results
+
+# source similarity functions
+source("R/similarity.R")
+sourceCpp("R/similarity.cpp")
+```
+
+```{r load-data}
+load("data/lingBinary.RData")
+# lingBinary: 474 columns, 45,152 rows
+# columns: ID, CITY, STATE, ZIP, lat, long, questions...
+
+# only keep the ID and questions columns in data 
+data <- lingBinary %>%
+  select(-CITY, -STATE, -ZIP, -lat, -long)
+```
+
+
+```{r compare-R-Rcpp}
+# compare the R and C++ implementations of similarity over random samples
+n <- 5000 # sample size
+
+compare_time <- function(k) {
+  x1 <- sample(1:k, n, replace = TRUE) # vector 1
+  x2 <- sample(1:k, n, replace = TRUE) # vector 2
+  
+  start_r <- proc.time() # start timer for R
+  sim_r <- similarity(x1, x2)
+  r_time <- proc.time() - start_r
+  
+  start_cpp <- proc.time() # start timer for Cpp
+  sim_cpp <- similarityRcpp(x1, x2)
+  cpp_time <- proc.time() - start_cpp
+  
+  return(list(r_time, cpp_time))
+}
+```
+
+
+Type  | k (# of clusters)  | Elapsed Time (s)
+----- | ------------------ | ----------------  
+R     | 3                  |            4.390
+Cpp   | 3                  |            0.188
+R     | 4                  |            6.479
+Cpp   | 4                  |            0.143
+R     | 5                  |            3.958
+Cpp   | 5                  |            0.122
+
+
+
+
+
