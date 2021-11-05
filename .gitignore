@@ -7,4 +7,5 @@
 lab*_cache/
 .DS_Store
 lab*_files/
+**/stat-215a-lab4/
 **/resources/
