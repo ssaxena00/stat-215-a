@@ -1,0 +1,7 @@
+,EDA (10),Hw (10),Effort,Feature Selection (10),Fit (10),Performance Analysis (10),Post Hoc EDA (10),Future Data (10),Comments,Final
+0,10,10,60.0,8,10,8,10,10,"modeling -
+feature selection: would have been nice to try at least one method for feature selection, your visual inspection covers at most pairwise interactions.
+ fit: you use two split methods which is a nice idea, but what is your overall fit assessment?
+good classifier analysis: I don't see a section for q4, so I'm reading QDA section. I like the visualization with four colors, however you don't clearly state if this is image 3 where the model was trained on the other two images. It's important because there's a special pattern.
+future data: would have been nice to say something more than would perform well. For example what kind of data may be good/ bad for this method and why.
+ ",67.19999999999999
